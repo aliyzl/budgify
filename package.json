@@ -1,0 +1,37 @@
+{
+  "name": "personal-accounter-web",
+  "version": "1.0.0",
+  "description": "Corporate Subscription Manager - PM2 managed application",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install --prefix backend && npm install --prefix frontend",
+    "build:backend": "npm run build --prefix backend",
+    "build:frontend": "npm run build --prefix frontend",
+    "build:all": "npm run build:backend && npm run build:frontend",
+    "pm2:start:dev": "pm2 start ecosystem.config.js --only backend-dev,frontend-dev",
+    "pm2:start:prod": "pm2 start ecosystem.config.js --only backend-prod,frontend-prod",
+    "pm2:start:all": "pm2 start ecosystem.config.js",
+    "pm2:stop:dev": "pm2 stop backend-dev frontend-dev",
+    "pm2:stop:prod": "pm2 stop backend-prod frontend-prod",
+    "pm2:stop:all": "pm2 stop all",
+    "pm2:restart:dev": "pm2 restart backend-dev frontend-dev",
+    "pm2:restart:prod": "pm2 restart backend-prod frontend-prod",
+    "pm2:restart:all": "pm2 restart all",
+    "pm2:logs": "pm2 logs",
+    "pm2:logs:backend": "pm2 logs backend-dev backend-prod",
+    "pm2:logs:frontend": "pm2 logs frontend-dev frontend-prod",
+    "pm2:delete:all": "pm2 delete all",
+    "pm2:status": "pm2 status",
+    "pm2:monit": "pm2 monit",
+    "pm2:save": "pm2 save",
+    "pm2:resurrect": "pm2 resurrect"
+  },
+  "devDependencies": {
+    "pm2": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
+

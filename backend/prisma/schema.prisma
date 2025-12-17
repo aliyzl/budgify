@@ -1,0 +1,134 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  ACCOUNTANT
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum PaymentFrequency {
+  MONTHLY
+  YEARLY
+  ONE_TIME
+}
+
+model User {
+  id                Int      @id @default(autoincrement())
+  name              String
+  email             String   @unique
+  passwordHash      String
+  role              Role
+  telegramChatId    String?  @unique
+  telegramAuthToken String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  requests          Request[]
+  managedDepartments Department[]
+  managerDepartments ManagerDepartment[]
+  auditLogs         AuditLog[]
+  comments          RequestComment[]
+
+  @@map("users")
+}
+
+model Department {
+  id               Int      @id @default(autoincrement())
+  name             String
+  monthlyBudget    Decimal
+  currentManagerId Int?
+  
+  manager          User?    @relation(fields: [currentManagerId], references: [id])
+  managerDepartments ManagerDepartment[]
+  requests         Request[]
+
+  @@map("departments")
+}
+
+model ManagerDepartment {
+  id           Int    @id @default(autoincrement())
+  managerId    Int
+  departmentId Int
+  manager      User   @relation(fields: [managerId], references: [id], onDelete: Cascade)
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  
+  @@unique([managerId, departmentId])
+  @@map("manager_departments")
+}
+
+model Request {
+  id                Int              @id @default(autoincrement())
+  status            RequestStatus    @default(PENDING)
+  platformName      String
+  planType          String?
+  url               String?
+  cost              Decimal
+  currency          String           @default("USD")
+  exchangeRate      Decimal?
+  localCost         Decimal?
+  paymentCardId     String?
+  startDate         DateTime?
+  renewalDate       DateTime?
+  credentialVault   String?
+  rejectionReason   String?
+  attachmentUrl     String?
+  paymentFrequency  PaymentFrequency @default(MONTHLY)
+  
+  departmentId      Int
+  department        Department       @relation(fields: [departmentId], references: [id])
+  
+  requesterId       Int
+  requester         User             @relation(fields: [requesterId], references: [id])
+
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  comments          RequestComment[]
+
+  @@map("requests")
+}
+
+model RequestComment {
+  id        Int      @id @default(autoincrement())
+  content   String
+  
+  requestId Int
+  request   Request  @relation(fields: [requestId], references: [id])
+  
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  
+  createdAt DateTime @default(now())
+  
+  @@map("request_comments")
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  actionType String
+  targetId   String?
+  timestamp  DateTime @default(now())
+  
+  actorId    Int
+  actor      User     @relation(fields: [actorId], references: [id])
+
+  @@map("audit_logs")
+}

@@ -45,6 +45,10 @@ const RequestDetails: React.FC = () => {
         localCost: '',
         paymentCardId: ''
     });
+    const [showStatusChange, setShowStatusChange] = useState(false);
+    const [newStatus, setNewStatus] = useState<string>('');
+    const [statusChangeCost, setStatusChangeCost] = useState<string>('');
+    const [statusChangeReason, setStatusChangeReason] = useState<string>('');
     const navigate = useNavigate();
     const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
 
@@ -89,6 +93,65 @@ const RequestDetails: React.FC = () => {
         } catch (e) {
             alert('Failed to send comment');
         }
+    };
+
+    const handleStatusChange = async () => {
+        if (!newStatus) {
+            alert('Please select a new status');
+            return;
+        }
+
+        if (newStatus === 'REJECTED' && !statusChangeReason.trim()) {
+            alert('Rejection reason is required');
+            return;
+        }
+
+        const confirmMessage = `Are you sure you want to change this request from ${request?.status} to ${newStatus}?`;
+        if (!window.confirm(confirmMessage)) {
+            return;
+        }
+
+        try {
+            const token = localStorage.getItem('token');
+            const updateData: any = { status: newStatus };
+            
+            if (newStatus === 'REJECTED') {
+                updateData.rejectionReason = statusChangeReason;
+            }
+            if (newStatus === 'APPROVED' && statusChangeCost.trim()) {
+                const cost = parseFloat(statusChangeCost);
+                if (!isNaN(cost)) {
+                    updateData.cost = cost;
+                }
+            }
+
+            const res = await axios.patch(`${API_URL}/requests/${id}/status`,
+                updateData,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            
+            setRequest(res.data);
+            setShowStatusChange(false);
+            setNewStatus('');
+            setStatusChangeCost('');
+            setStatusChangeReason('');
+            alert('Status updated successfully');
+        } catch (err: any) {
+            const errorMsg = err.response?.data?.error || 'Failed to update status';
+            alert(errorMsg);
+        }
+    };
+
+    const getAvailableStatuses = (currentStatus: string): string[] => {
+        const statusMap: Record<string, string[]> = {
+            'PENDING': ['APPROVED', 'REJECTED'],
+            'APPROVED': ['PENDING', 'REJECTED', 'ACTIVE'],
+            'REJECTED': ['PENDING', 'APPROVED'],
+            'ACTIVE': ['EXPIRED', 'CANCELLED', 'PENDING'],
+            'EXPIRED': ['PENDING', 'ACTIVE'],
+            'CANCELLED': ['PENDING']
+        };
+        return statusMap[currentStatus] || ['PENDING'];
     };
 
     const handleSaveCredentials = async () => {
@@ -191,10 +254,106 @@ const RequestDetails: React.FC = () => {
                                 )}
                                 <div>
                                     <span className="text-gray-500 text-sm">Status</span>
-                                    <p className={`font-bold ${request.status === 'APPROVED' ? 'text-green-600' : request.status === 'REJECTED' ? 'text-red-600' : 'text-yellow-600'}`}>
-                                        {request.status}
-                                    </p>
+                                    <div className="flex items-center gap-3">
+                                        <p className={`font-bold ${request.status === 'APPROVED' ? 'text-green-600' : request.status === 'REJECTED' ? 'text-red-600' : request.status === 'ACTIVE' ? 'text-blue-600' : 'text-yellow-600'}`}>
+                                            {request.status}
+                                        </p>
+                                        {isAccountant && (
+                                            <button
+                                                onClick={() => {
+                                                    setShowStatusChange(!showStatusChange);
+                                                    if (!showStatusChange) {
+                                                        setNewStatus('');
+                                                        setStatusChangeCost('');
+                                                        setStatusChangeReason('');
+                                                    }
+                                                }}
+                                                className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-200"
+                                            >
+                                                {showStatusChange ? 'Cancel' : 'Change Status'}
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
+
+                                {/* Status Change Section */}
+                                {isAccountant && showStatusChange && request && (
+                                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-2">
+                                        <h4 className="font-semibold text-blue-900 mb-3">Change Request Status</h4>
+                                        <div className="space-y-3">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    New Status
+                                                </label>
+                                                <select
+                                                    value={newStatus}
+                                                    onChange={(e) => setNewStatus(e.target.value)}
+                                                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                >
+                                                    <option value="">Select new status...</option>
+                                                    {getAvailableStatuses(request.status).map((status) => (
+                                                        <option key={status} value={status}>
+                                                            {status}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            {newStatus === 'APPROVED' && (
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                        Final Cost (optional, leave empty to keep current)
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        value={statusChangeCost}
+                                                        onChange={(e) => setStatusChangeCost(e.target.value)}
+                                                        placeholder={`Current: ${request.currency} ${request.cost}`}
+                                                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                    />
+                                                </div>
+                                            )}
+
+                                            {newStatus === 'REJECTED' && (
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                        Rejection Reason <span className="text-red-600">*</span>
+                                                    </label>
+                                                    <textarea
+                                                        value={statusChangeReason}
+                                                        onChange={(e) => setStatusChangeReason(e.target.value)}
+                                                        placeholder="Enter reason for rejection..."
+                                                        rows={3}
+                                                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                        required
+                                                    />
+                                                </div>
+                                            )}
+
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={handleStatusChange}
+                                                    className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700"
+                                                >
+                                                    Update Status
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        setShowStatusChange(false);
+                                                        setNewStatus('');
+                                                        setStatusChangeCost('');
+                                                        setStatusChangeReason('');
+                                                    }}
+                                                    className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {request.rejectionReason && (
                                     <div className="bg-red-50 p-3 rounded">
                                         <span className="text-red-800 text-sm font-bold">Rejection Reason:</span>

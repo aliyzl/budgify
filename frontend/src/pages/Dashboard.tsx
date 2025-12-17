@@ -81,17 +81,42 @@ const Dashboard: React.FC = () => {
         }
     };
 
-    const handleUpdateStatus = async (id: number, status: string) => {
+    const handleUpdateStatus = async (id: number, status: string, currentStatus?: string) => {
         try {
+            // Confirmation for status changes
+            const statusMessages: Record<string, string> = {
+                'PENDING': 'reset to PENDING',
+                'APPROVED': 'approve',
+                'REJECTED': 'reject',
+                'ACTIVE': 'activate'
+            };
+            const action = statusMessages[status] || 'change status';
+            const confirmMessage = currentStatus 
+                ? `Are you sure you want to change this request from ${currentStatus} to ${status}?`
+                : `Are you sure you want to ${action} this request?`;
+            
+            if (!window.confirm(confirmMessage)) {
+                return; // User cancelled
+            }
+
             let cost;
             let rejectionReason;
 
             if (status === 'APPROVED') {
-                const costStr = prompt('Enter final cost (leaves empty to keep current):');
-                if (costStr) cost = parseFloat(costStr);
+                const costStr = prompt('Enter final cost (leave empty to keep current cost):');
+                if (costStr && costStr.trim()) {
+                    cost = parseFloat(costStr);
+                    if (isNaN(cost)) {
+                        alert('Invalid cost value');
+                        return;
+                    }
+                }
             } else if (status === 'REJECTED') {
-                rejectionReason = prompt('Enter rejection reason:');
-                if (!rejectionReason) return; // Cancelled
+                rejectionReason = prompt('Enter rejection reason (required):');
+                if (!rejectionReason || !rejectionReason.trim()) {
+                    alert('Rejection reason is required');
+                    return;
+                }
             }
 
             await axios.patch(`${API_URL}/requests/${id}/status`,
@@ -100,8 +125,10 @@ const Dashboard: React.FC = () => {
             );
             // Refresh
             fetchRequests(localStorage.getItem('token')!);
-        } catch (err) {
-            alert('Failed to update status');
+            alert('Status updated successfully');
+        } catch (err: any) {
+            const errorMsg = err.response?.data?.error || 'Failed to update status';
+            alert(errorMsg);
         }
     };
 
@@ -176,12 +203,18 @@ const Dashboard: React.FC = () => {
             )}
 
             {(user.role === 'ACCOUNTANT' || user.role === 'ADMIN') && (
-                <div className="mb-4">
+                <div className="mb-4 flex gap-3">
                     <button
                         onClick={() => navigate('/analytics')}
                         className="bg-indigo-600 text-white px-4 py-2 rounded shadow hover:bg-indigo-700"
                     >
                         📊 View Analytics
+                    </button>
+                    <button
+                        onClick={() => navigate('/departments/budgets')}
+                        className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"
+                    >
+                        💰 View Budgets
                     </button>
                 </div>
             )}
@@ -318,8 +351,20 @@ const Dashboard: React.FC = () => {
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                         {req.status === 'PENDING' && (
                                             <>
-                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'APPROVED'); }} className="text-green-600 hover:text-green-900 mr-4">Approve</button>
-                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'REJECTED'); }} className="text-red-600 hover:text-red-900">Reject</button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'APPROVED', req.status); }} className="text-green-600 hover:text-green-900 mr-4">Approve</button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'REJECTED', req.status); }} className="text-red-600 hover:text-red-900">Reject</button>
+                                            </>
+                                        )}
+                                        {req.status === 'APPROVED' && (
+                                            <>
+                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'PENDING', req.status); }} className="text-yellow-600 hover:text-yellow-900 mr-4">Reset to Pending</button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'REJECTED', req.status); }} className="text-red-600 hover:text-red-900">Reject</button>
+                                            </>
+                                        )}
+                                        {req.status === 'REJECTED' && (
+                                            <>
+                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'PENDING', req.status); }} className="text-yellow-600 hover:text-yellow-900 mr-4">Reset to Pending</button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'APPROVED', req.status); }} className="text-green-600 hover:text-green-900">Approve</button>
                                             </>
                                         )}
                                     </td>

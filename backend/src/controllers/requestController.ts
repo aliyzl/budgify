@@ -182,9 +182,39 @@ export const updateRequestStatus = async (req: Request, res: Response) => {
             return res.status(403).json({ error: 'Unauthorized' });
         }
 
+        // Get current request to check previous status
+        const currentRequest = await prisma.request.findUnique({
+            where: { id: Number(id) },
+            include: { requester: true, department: { select: { name: true } } }
+        });
+
+        if (!currentRequest) {
+            return res.status(404).json({ error: 'Request not found' });
+        }
+
+        const previousStatus = currentRequest.status;
+
+        // Prepare update data
         const updateData: any = { status };
-        if (status === 'REJECTED') updateData.rejectionReason = rejectionReason;
-        if (status === 'APPROVED' && cost) updateData.cost = cost;
+        
+        // Handle status-specific fields
+        if (status === 'REJECTED') {
+            // Require rejection reason when rejecting
+            if (!rejectionReason) {
+                return res.status(400).json({ error: 'Rejection reason is required' });
+            }
+            updateData.rejectionReason = rejectionReason;
+        } else if (status === 'APPROVED') {
+            // Clear rejection reason when approving
+            updateData.rejectionReason = null;
+            // Update cost if provided
+            if (cost !== undefined && cost !== null) {
+                updateData.cost = cost;
+            }
+        } else if (status === 'PENDING') {
+            // When resetting to PENDING, clear rejection reason
+            updateData.rejectionReason = null;
+        }
 
         const request = await prisma.request.update({
             where: { id: Number(id) },
@@ -195,17 +225,47 @@ export const updateRequestStatus = async (req: Request, res: Response) => {
         // Notify Manager via Telegram
         if (request.requester.telegramChatId) {
             let msg = '';
+            const statusChanged = previousStatus !== status;
+            
             if (status === 'APPROVED') {
-                msg = `✅ *Request #${id} Approved*\n\n` +
-                      `*Platform:* ${request.platformName}\n` +
-                      `*Final Cost:* ${request.currency} ${request.cost}\n` +
-                      `*Department:* ${request.department?.name || 'N/A'}\n\n` +
-                      `Your request has been approved and is now active.`;
+                if (statusChanged && previousStatus === 'REJECTED') {
+                    msg = `✅ *Request #${id} Status Changed*\n\n` +
+                          `*Platform:* ${request.platformName}\n` +
+                          `*Previous Status:* REJECTED\n` +
+                          `*New Status:* APPROVED\n` +
+                          `*Final Cost:* ${request.currency} ${request.cost}\n` +
+                          `*Department:* ${request.department?.name || 'N/A'}\n\n` +
+                          `Your request has been approved.`;
+                } else {
+                    msg = `✅ *Request #${id} Approved*\n\n` +
+                          `*Platform:* ${request.platformName}\n` +
+                          `*Final Cost:* ${request.currency} ${request.cost}\n` +
+                          `*Department:* ${request.department?.name || 'N/A'}\n\n` +
+                          `Your request has been approved.`;
+                }
             } else if (status === 'REJECTED') {
-                msg = `❌ *Request #${id} Rejected*\n\n` +
-                      `*Platform:* ${request.platformName}\n` +
-                      `*Reason:* ${request.rejectionReason || 'No reason provided'}\n\n` +
-                      `Please review and submit a new request if needed.`;
+                if (statusChanged && previousStatus === 'APPROVED') {
+                    msg = `❌ *Request #${id} Status Changed*\n\n` +
+                          `*Platform:* ${request.platformName}\n` +
+                          `*Previous Status:* APPROVED\n` +
+                          `*New Status:* REJECTED\n` +
+                          `*Reason:* ${request.rejectionReason || 'No reason provided'}\n\n` +
+                          `Your request has been rejected.`;
+                } else {
+                    msg = `❌ *Request #${id} Rejected*\n\n` +
+                          `*Platform:* ${request.platformName}\n` +
+                          `*Reason:* ${request.rejectionReason || 'No reason provided'}\n\n` +
+                          `Please review and submit a new request if needed.`;
+                }
+            } else if (status === 'PENDING') {
+                if (statusChanged) {
+                    msg = `🔄 *Request #${id} Status Changed*\n\n` +
+                          `*Platform:* ${request.platformName}\n` +
+                          `*Previous Status:* ${previousStatus}\n` +
+                          `*New Status:* PENDING\n` +
+                          `*Department:* ${request.department?.name || 'N/A'}\n\n` +
+                          `Your request status has been reset to pending for review.`;
+                }
             } else if (status === 'ACTIVE') {
                 msg = `🟢 *Request #${id} Activated*\n\n` +
                       `*Platform:* ${request.platformName}\n` +

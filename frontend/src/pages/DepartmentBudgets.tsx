@@ -102,8 +102,8 @@ const DepartmentBudgets: React.FC = () => {
         const parsedUser = JSON.parse(userStr);
         setUser(parsedUser);
 
-        // Only managers can access this page
-        if (parsedUser.role !== 'MANAGER') {
+        // Only managers, admins, and accountants can access this page
+        if (parsedUser.role !== 'MANAGER' && parsedUser.role !== 'ADMIN' && parsedUser.role !== 'ACCOUNTANT') {
             navigate('/dashboard');
             return;
         }
@@ -133,7 +133,91 @@ const DepartmentBudgets: React.FC = () => {
         return new Date(dateString).toLocaleDateString();
     };
 
-    if (!user || user.role !== 'MANAGER') {
+    const handleExportExcel = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const dateRangeObj = getDateRange();
+            
+            let url = `${API_URL}/departments/budgets/export/excel`;
+            if (dateRangeObj) {
+                url += `?startDate=${dateRangeObj.start.toISOString()}&endDate=${dateRangeObj.end.toISOString()}`;
+            }
+
+            const response = await axios.get(url, {
+                headers: { Authorization: `Bearer ${token}` },
+                responseType: 'blob'
+            });
+            
+            const url_blob = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url_blob;
+            
+            // Generate filename
+            const today = new Date().toISOString().split('T')[0];
+            let filename = `department-budgets-${today}.xlsx`;
+            if (dateRangeObj) {
+                const startStr = dateRangeObj.start.toISOString().split('T')[0];
+                const endStr = dateRangeObj.end.toISOString().split('T')[0];
+                filename = `department-budgets-${startStr}-to-${endStr}.xlsx`;
+            }
+            
+            link.setAttribute('download', filename);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (error: any) {
+            console.error('Failed to export Excel:', error);
+            if (error.response?.status === 403) {
+                alert('You do not have permission to export budgets');
+            } else {
+                alert('Failed to export Excel file');
+            }
+        }
+    };
+
+    const handleExportPDF = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const dateRangeObj = getDateRange();
+            
+            let url = `${API_URL}/departments/budgets/export/pdf`;
+            if (dateRangeObj) {
+                url += `?startDate=${dateRangeObj.start.toISOString()}&endDate=${dateRangeObj.end.toISOString()}`;
+            }
+
+            const response = await axios.get(url, {
+                headers: { Authorization: `Bearer ${token}` },
+                responseType: 'blob'
+            });
+            
+            const url_blob = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url_blob;
+            
+            // Generate filename
+            const today = new Date().toISOString().split('T')[0];
+            let filename = `department-budgets-${today}.pdf`;
+            if (dateRangeObj) {
+                const startStr = dateRangeObj.start.toISOString().split('T')[0];
+                const endStr = dateRangeObj.end.toISOString().split('T')[0];
+                filename = `department-budgets-${startStr}-to-${endStr}.pdf`;
+            }
+            
+            link.setAttribute('download', filename);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (error: any) {
+            console.error('Failed to export PDF:', error);
+            if (error.response?.status === 403) {
+                alert('You do not have permission to export budgets');
+            } else {
+                alert('Failed to export PDF file');
+            }
+        }
+    };
+
+    if (!user || (user.role !== 'MANAGER' && user.role !== 'ADMIN' && user.role !== 'ACCOUNTANT')) {
         return <div className="min-h-screen bg-gray-100 p-8">Loading...</div>;
     }
 
@@ -146,14 +230,34 @@ const DepartmentBudgets: React.FC = () => {
             <div className="flex justify-between items-center mb-8">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Department Budgets</h1>
-                    <p className="text-gray-600">View budget information for your departments</p>
+                    <p className="text-gray-600">
+                        {user.role === 'MANAGER' 
+                            ? 'View budget information for your departments' 
+                            : 'View budget information for all departments'}
+                    </p>
                 </div>
-                <button
-                    onClick={() => navigate('/dashboard')}
-                    className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300"
-                >
-                    Back to Dashboard
-                </button>
+                <div className="flex gap-3">
+                    <button
+                        onClick={handleExportExcel}
+                        disabled={loading}
+                        className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center gap-2"
+                    >
+                        📊 Export Excel
+                    </button>
+                    <button
+                        onClick={handleExportPDF}
+                        disabled={loading}
+                        className="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center gap-2"
+                    >
+                        📄 Export PDF
+                    </button>
+                    <button
+                        onClick={() => navigate('/dashboard')}
+                        className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300"
+                    >
+                        Back to Dashboard
+                    </button>
+                </div>
             </div>
 
             {/* Date Range Selector */}
@@ -301,7 +405,7 @@ const DepartmentBudgets: React.FC = () => {
                                                             {request.paymentFrequency}
                                                         </td>
                                                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                                                            {formatDate(request.startDate)}
+                                                            {formatDate(request.startDate || request.createdAt)}
                                                         </td>
                                                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
                                                             {formatDate(request.renewalDate)}

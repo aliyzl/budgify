@@ -568,4 +568,248 @@ export const notifyNewRequest = async (request: any, requesterName: string, scre
     }
 };
 
+export const notifyRequestEdited = async (request: any, managerName: string, changedFields: string[], screenshotPath?: string | null) => {
+    try {
+        console.log(`[Telegram] Notifying about edited request #${request.id} by ${managerName}`);
+        
+        // Check if bot is ready
+        if (!botReady) {
+            console.log('[Telegram] Bot not ready yet, waiting 2 seconds...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            try {
+                await bot.telegram.getMe();
+                botReady = true;
+                console.log('[Telegram] Bot verified and ready');
+            } catch (e) {
+                console.error('[Telegram] Bot verification failed:', e);
+            }
+        }
+        
+        // Find all accountants and admins with telegramChatId
+        const accountants = await prisma.user.findMany({
+            where: { 
+                role: { in: ['ACCOUNTANT', 'ADMIN'] },
+                telegramChatId: { not: null } 
+            }
+        });
+        
+        console.log(`[Telegram] Found ${accountants.length} accountant(s)/admin(s) with Telegram linked`);
+        
+        if (accountants.length === 0) {
+            console.log('[Telegram] No accountants/admins with linked Telegram accounts found. Skipping notification.');
+            return;
+        }
+
+        // Get department name for better context
+        const department = await prisma.department.findUnique({
+            where: { id: request.departmentId },
+            select: { name: true }
+        });
+
+        const changedFieldsText = changedFields.length > 0 
+            ? `\n*Changed Fields:* ${changedFields.join(', ')}` 
+            : '';
+
+        const messageText = `🔄 *Request #${request.id} Edited*\n\n` +
+            `*Platform:* ${request.platformName}\n` +
+            (request.planType ? `*Plan:* ${request.planType}\n` : '') +
+            `*Cost:* ${request.currency} ${request.cost}\n` +
+            `*Department:* ${department?.name || 'N/A'}\n` +
+            `*Edited by:* ${managerName}\n` +
+            `*Frequency:* ${request.paymentFrequency}\n` +
+            changedFieldsText +
+            `\n*Status:* Reset to PENDING for review`;
+
+        // Build keyboard - only include View Details if FRONTEND_URL is a public URL
+        const frontendUrl = process.env.FRONTEND_URL || '';
+        const isPublicUrl = frontendUrl && !frontendUrl.includes('localhost') && !frontendUrl.includes('127.0.0.1');
+        
+        const keyboard: any = {
+            inline_keyboard: [
+                [
+                    { text: '✅ Approve', callback_data: `approve_${request.id}` },
+                    { text: '❌ Reject', callback_data: `reject_${request.id}` }
+                ]
+            ]
+        };
+        
+        if (isPublicUrl) {
+            keyboard.inline_keyboard.push([
+                { text: '🔍 View Details', url: `${frontendUrl}/requests/${request.id}` }
+            ]);
+        }
+
+        for (const acc of accountants) {
+            if (acc.telegramChatId) {
+                try {
+                    console.log(`[Telegram] Sending edit notification to ${acc.name} (${acc.role}) - Chat ID: ${acc.telegramChatId}`);
+                    
+                    // If screenshot exists, send it with caption
+                    if (screenshotPath) {
+                        try {
+                            if (fs.existsSync(screenshotPath)) {
+                                await bot.telegram.sendPhoto(
+                                    acc.telegramChatId,
+                                    { source: screenshotPath },
+                                    {
+                                        caption: messageText,
+                                        parse_mode: 'Markdown',
+                                        reply_markup: keyboard
+                                    }
+                                );
+                                console.log(`[Telegram] Photo notification sent to ${acc.name}`);
+                            } else {
+                                await bot.telegram.sendMessage(acc.telegramChatId, messageText, {
+                                    parse_mode: 'Markdown',
+                                    reply_markup: keyboard
+                                });
+                                console.log(`[Telegram] Text notification sent to ${acc.name} (screenshot not found)`);
+                            }
+                        } catch (photoError) {
+                            console.error(`[Telegram] Error sending photo to ${acc.name}, falling back to text:`, photoError);
+                            await bot.telegram.sendMessage(acc.telegramChatId, messageText, {
+                                parse_mode: 'Markdown',
+                                reply_markup: keyboard
+                            });
+                            console.log(`[Telegram] Text notification sent to ${acc.name} (fallback)`);
+                        }
+                    } else {
+                        await bot.telegram.sendMessage(acc.telegramChatId, messageText, {
+                            parse_mode: 'Markdown',
+                            reply_markup: keyboard
+                        });
+                        console.log(`[Telegram] Text notification sent to ${acc.name}`);
+                    }
+                } catch (error: any) {
+                    console.error(`[Telegram] Failed to send notification to ${acc.name}:`, error?.message || error);
+                }
+            }
+        }
+        
+        console.log(`[Telegram] Finished sending edit notifications for request #${request.id}`);
+    } catch (error) {
+        console.error('Failed to send telegram notification for edited request', error);
+    }
+};
+
+export const notifyRequestDeleted = async (requestId: number, platformName: string, managerName: string, departmentName?: string) => {
+    try {
+        console.log(`[Telegram] Notifying about deleted request #${requestId} by ${managerName}`);
+        
+        // Check if bot is ready
+        if (!botReady) {
+            console.log('[Telegram] Bot not ready yet, waiting 2 seconds...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            try {
+                await bot.telegram.getMe();
+                botReady = true;
+                console.log('[Telegram] Bot verified and ready');
+            } catch (e) {
+                console.error('[Telegram] Bot verification failed:', e);
+            }
+        }
+        
+        // Find all accountants and admins with telegramChatId
+        const accountants = await prisma.user.findMany({
+            where: { 
+                role: { in: ['ACCOUNTANT', 'ADMIN'] },
+                telegramChatId: { not: null } 
+            }
+        });
+        
+        console.log(`[Telegram] Found ${accountants.length} accountant(s)/admin(s) with Telegram linked`);
+        
+        if (accountants.length === 0) {
+            console.log('[Telegram] No accountants/admins with linked Telegram accounts found. Skipping notification.');
+            return;
+        }
+
+        const messageText = `🗑️ *Request #${requestId} Deleted*\n\n` +
+            `*Platform:* ${platformName}\n` +
+            (departmentName ? `*Department:* ${departmentName}\n` : '') +
+            `*Deleted by:* ${managerName}\n\n` +
+            `This request has been deleted and is no longer pending review.`;
+
+        for (const acc of accountants) {
+            if (acc.telegramChatId) {
+                try {
+                    console.log(`[Telegram] Sending delete notification to ${acc.name} (${acc.role}) - Chat ID: ${acc.telegramChatId}`);
+                    await bot.telegram.sendMessage(acc.telegramChatId, messageText, {
+                        parse_mode: 'Markdown'
+                    });
+                    console.log(`[Telegram] Delete notification sent to ${acc.name}`);
+                } catch (error: any) {
+                    console.error(`[Telegram] Failed to send notification to ${acc.name}:`, error?.message || error);
+                }
+            }
+        }
+        
+        console.log(`[Telegram] Finished sending delete notifications for request #${requestId}`);
+    } catch (error) {
+        console.error('Failed to send telegram notification for deleted request', error);
+    }
+};
+
+export const notifyBulkRequestDeleted = async (deletedRequests: Array<{ id: number; platformName: string; departmentName?: string }>, managerName: string) => {
+    try {
+        console.log(`[Telegram] Notifying about bulk deletion of ${deletedRequests.length} request(s) by ${managerName}`);
+        
+        // Check if bot is ready
+        if (!botReady) {
+            console.log('[Telegram] Bot not ready yet, waiting 2 seconds...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            try {
+                await bot.telegram.getMe();
+                botReady = true;
+                console.log('[Telegram] Bot verified and ready');
+            } catch (e) {
+                console.error('[Telegram] Bot verification failed:', e);
+            }
+        }
+        
+        // Find all accountants and admins with telegramChatId
+        const accountants = await prisma.user.findMany({
+            where: { 
+                role: { in: ['ACCOUNTANT', 'ADMIN'] },
+                telegramChatId: { not: null } 
+            }
+        });
+        
+        console.log(`[Telegram] Found ${accountants.length} accountant(s)/admin(s) with Telegram linked`);
+        
+        if (accountants.length === 0) {
+            console.log('[Telegram] No accountants/admins with linked Telegram accounts found. Skipping notification.');
+            return;
+        }
+
+        // Build requests list text
+        const requestsList = deletedRequests.map(req => 
+            `- Request #${req.id}: ${req.platformName}${req.departmentName ? ` (${req.departmentName})` : ''}`
+        ).join('\n');
+
+        const messageText = `🗑️ *Bulk Delete - ${deletedRequests.length} Request(s) Deleted*\n\n` +
+            `*Deleted by:* ${managerName}\n\n` +
+            `*Requests:*\n${requestsList}\n\n` +
+            `These requests have been deleted and are no longer pending review.`;
+
+        for (const acc of accountants) {
+            if (acc.telegramChatId) {
+                try {
+                    console.log(`[Telegram] Sending bulk delete notification to ${acc.name} (${acc.role}) - Chat ID: ${acc.telegramChatId}`);
+                    await bot.telegram.sendMessage(acc.telegramChatId, messageText, {
+                        parse_mode: 'Markdown'
+                    });
+                    console.log(`[Telegram] Bulk delete notification sent to ${acc.name}`);
+                } catch (error: any) {
+                    console.error(`[Telegram] Failed to send notification to ${acc.name}:`, error?.message || error);
+                }
+            }
+        }
+        
+        console.log(`[Telegram] Finished sending bulk delete notifications for ${deletedRequests.length} request(s)`);
+    } catch (error) {
+        console.error('Failed to send telegram notification for bulk deleted requests', error);
+    }
+};
+
 export default bot;

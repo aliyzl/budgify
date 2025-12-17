@@ -28,8 +28,10 @@ interface RequestDetail {
     url?: string;
     planType?: string;
     credentialVault?: string;
-    department?: { name: string; monthlyBudget: number };
+    department?: { id?: number; name: string; monthlyBudget: number };
+    departmentId?: number;
     comments?: Comment[];
+    deletedAt?: string;
 }
 
 const RequestDetails: React.FC = () => {
@@ -49,6 +51,19 @@ const RequestDetails: React.FC = () => {
     const [newStatus, setNewStatus] = useState<string>('');
     const [statusChangeCost, setStatusChangeCost] = useState<string>('');
     const [statusChangeReason, setStatusChangeReason] = useState<string>('');
+    const [showEditForm, setShowEditForm] = useState(false);
+    const [editFormData, setEditFormData] = useState({
+        platformName: '',
+        cost: '',
+        currency: 'USD',
+        departmentId: '',
+        paymentFrequency: 'MONTHLY',
+        planType: '',
+        url: '',
+    });
+    const [editScreenshot, setEditScreenshot] = useState<File | null>(null);
+    const [departments, setDepartments] = useState<Array<{ id: number; name: string; monthlyBudget: number }>>([]);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const navigate = useNavigate();
     const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
 
@@ -79,6 +94,24 @@ const RequestDetails: React.FC = () => {
         };
         fetchData();
     }, [id]);
+
+    // Fetch departments for edit form
+    useEffect(() => {
+        const fetchDepartments = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                const res = await axios.get(`${API_URL}/departments`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                setDepartments(res.data);
+            } catch (err) {
+                console.error('Failed to load departments', err);
+            }
+        };
+        if (showEditForm) {
+            fetchDepartments();
+        }
+    }, [showEditForm]);
 
     const handleSendComment = async () => {
         if (!newComment.trim()) return;
@@ -211,6 +244,84 @@ const RequestDetails: React.FC = () => {
         }
     };
 
+    const handleEditClick = () => {
+        if (!request) return;
+        
+        // Get departmentId - try from request.departmentId first, then from department.id
+        const deptId = request.departmentId?.toString() || (request.department as any)?.id?.toString() || '';
+        
+        setEditFormData({
+            platformName: request.platformName,
+            cost: request.cost.toString(),
+            currency: request.currency,
+            departmentId: deptId,
+            paymentFrequency: request.paymentFrequency,
+            planType: request.planType || '',
+            url: request.url || '',
+        });
+        setEditScreenshot(null);
+        setShowEditForm(true);
+    };
+
+    const handleEditChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        setEditFormData({ ...editFormData, [e.target.name]: e.target.value });
+    };
+
+    const handleEditFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            setEditScreenshot(e.target.files[0]);
+        }
+    };
+
+    const handleEditSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        try {
+            const token = localStorage.getItem('token');
+            const formDataToSend = new FormData();
+            
+            formDataToSend.append('platformName', editFormData.platformName);
+            formDataToSend.append('cost', editFormData.cost);
+            formDataToSend.append('currency', editFormData.currency);
+            formDataToSend.append('departmentId', editFormData.departmentId);
+            formDataToSend.append('paymentFrequency', editFormData.paymentFrequency);
+            if (editFormData.planType) formDataToSend.append('planType', editFormData.planType);
+            if (editFormData.url) formDataToSend.append('url', editFormData.url);
+            if (editScreenshot) formDataToSend.append('screenshot', editScreenshot);
+
+            const res = await axios.put(`${API_URL}/requests/${id}`, formDataToSend, {
+                headers: { 
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'multipart/form-data'
+                }
+            });
+            
+            setRequest(res.data);
+            setComments(res.data.comments || []);
+            setShowEditForm(false);
+            alert('Request updated successfully!');
+        } catch (e: any) {
+            alert(e.response?.data?.error || 'Failed to update request');
+        }
+    };
+
+    const handleDeleteClick = () => {
+        setShowDeleteConfirm(true);
+    };
+
+    const handleDeleteConfirm = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            await axios.delete(`${API_URL}/requests/${id}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            alert('Request deleted successfully!');
+            navigate('/dashboard');
+        } catch (e: any) {
+            alert(e.response?.data?.error || 'Failed to delete request');
+            setShowDeleteConfirm(false);
+        }
+    };
+
     if (!request) return <div className="min-h-screen bg-gray-50 p-8 flex items-center justify-center">Loading...</div>;
 
     const isAccountant = currentUser.role === 'ACCOUNTANT' || currentUser.role === 'ADMIN';
@@ -272,6 +383,22 @@ const RequestDetails: React.FC = () => {
                                             >
                                                 {showStatusChange ? 'Cancel' : 'Change Status'}
                                             </button>
+                                        )}
+                                        {isRequester && request.status === 'PENDING' && (
+                                            <>
+                                                <button
+                                                    onClick={handleEditClick}
+                                                    className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200"
+                                                >
+                                                    Edit
+                                                </button>
+                                                <button
+                                                    onClick={handleDeleteClick}
+                                                    className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200"
+                                                >
+                                                    Delete
+                                                </button>
+                                            </>
                                         )}
                                     </div>
                                 </div>
@@ -390,6 +517,160 @@ const RequestDetails: React.FC = () => {
                                 </div>
                             </div>
                         </div>
+
+                        {/* Edit Form */}
+                        {showEditForm && (
+                            <div className="bg-white rounded-lg shadow p-6 border-2 border-blue-200">
+                                <h3 className="text-lg font-bold mb-4">Edit Request</h3>
+                                <form onSubmit={handleEditSubmit} className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700">Platform/Tool Name</label>
+                                        <input 
+                                            name="platformName" 
+                                            required 
+                                            value={editFormData.platformName} 
+                                            onChange={handleEditChange} 
+                                            className="mt-1 block w-full rounded border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border" 
+                                        />
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700">Cost</label>
+                                            <input 
+                                                name="cost" 
+                                                type="number" 
+                                                step="0.01" 
+                                                required 
+                                                value={editFormData.cost} 
+                                                onChange={handleEditChange} 
+                                                className="mt-1 block w-full rounded border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border" 
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700">Currency</label>
+                                            <select 
+                                                name="currency" 
+                                                value={editFormData.currency} 
+                                                onChange={handleEditChange} 
+                                                className="mt-1 block w-full rounded border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                            >
+                                                <option value="USD">USD</option>
+                                                <option value="EUR">EUR</option>
+                                                <option value="GBP">GBP</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700">Payment Frequency</label>
+                                        <select 
+                                            name="paymentFrequency" 
+                                            value={editFormData.paymentFrequency} 
+                                            onChange={handleEditChange} 
+                                            className="mt-1 block w-full rounded border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                        >
+                                            <option value="MONTHLY">Monthly</option>
+                                            <option value="YEARLY">Yearly</option>
+                                            <option value="ONE_TIME">One Time</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700">Department</label>
+                                        <select 
+                                            name="departmentId" 
+                                            required 
+                                            value={editFormData.departmentId} 
+                                            onChange={handleEditChange} 
+                                            className="mt-1 block w-full rounded border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
+                                        >
+                                            <option value="">Select Department</option>
+                                            {departments.map(dept => (
+                                                <option key={dept.id} value={dept.id}>{dept.name} (Budget: ${dept.monthlyBudget})</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700">Plan Type (Optional)</label>
+                                        <input 
+                                            name="planType" 
+                                            value={editFormData.planType} 
+                                            onChange={handleEditChange} 
+                                            className="mt-1 block w-full rounded border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border" 
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700">URL (Optional)</label>
+                                        <input 
+                                            name="url" 
+                                            type="url" 
+                                            value={editFormData.url} 
+                                            onChange={handleEditChange} 
+                                            className="mt-1 block w-full rounded border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border" 
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700">Screenshot (Optional)</label>
+                                        <input 
+                                            name="screenshot" 
+                                            type="file" 
+                                            accept="image/*" 
+                                            onChange={handleEditFileChange}
+                                            className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                                        />
+                                        {editScreenshot && (
+                                            <p className="mt-1 text-sm text-gray-500">Selected: {editScreenshot.name}</p>
+                                        )}
+                                    </div>
+
+                                    <div className="pt-4 flex justify-end space-x-3">
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setShowEditForm(false)} 
+                                            className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button 
+                                            type="submit" 
+                                            className="px-4 py-2 bg-indigo-600 rounded text-sm text-white hover:bg-indigo-700"
+                                        >
+                                            Save Changes
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        )}
+
+                        {/* Delete Confirmation Dialog */}
+                        {showDeleteConfirm && (
+                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                                <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full mx-4">
+                                    <h3 className="text-lg font-bold text-gray-900 mb-4">Confirm Delete</h3>
+                                    <p className="text-gray-700 mb-6">
+                                        Are you sure you want to delete this request? This action cannot be undone. Accountants will be notified of this deletion.
+                                    </p>
+                                    <div className="flex justify-end space-x-3">
+                                        <button 
+                                            onClick={() => setShowDeleteConfirm(false)}
+                                            className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button 
+                                            onClick={handleDeleteConfirm}
+                                            className="px-4 py-2 bg-red-600 rounded text-sm text-white hover:bg-red-700"
+                                        >
+                                            Delete Request
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Secure Vault - Accountant Input */}
                         {isAccountant && (

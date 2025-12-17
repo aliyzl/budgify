@@ -26,6 +26,7 @@ const Dashboard: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState<string>('');
     const [statusFilter, setStatusFilter] = useState<string>('ALL');
     const [departmentFilter, setDepartmentFilter] = useState<string>('ALL');
+    const [selectedRequests, setSelectedRequests] = useState<number[]>([]);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -144,6 +145,14 @@ const Dashboard: React.FC = () => {
         setDepartmentFilter('ALL');
     };
 
+    const handleSelectRequest = (requestId: number, checked: boolean) => {
+        if (checked) {
+            setSelectedRequests([...selectedRequests, requestId]);
+        } else {
+            setSelectedRequests(selectedRequests.filter(id => id !== requestId));
+        }
+    };
+
     // Filter requests based on search and filter criteria
     const filteredRequests = useMemo(() => {
         return requests.filter((req) => {
@@ -168,6 +177,48 @@ const Dashboard: React.FC = () => {
         });
     }, [requests, searchQuery, statusFilter, departmentFilter, user?.role]);
 
+    // Get pending requests that can be selected (only for managers)
+    const selectableRequests = useMemo(() => {
+        if (user?.role !== 'MANAGER') return [];
+        return filteredRequests.filter(req => req.status === 'PENDING');
+    }, [filteredRequests, user?.role]);
+
+    const handleSelectAll = () => {
+        const selectableIds = selectableRequests.map(req => req.id);
+        if (selectedRequests.length === selectableIds.length) {
+            // Deselect all
+            setSelectedRequests([]);
+        } else {
+            // Select all
+            setSelectedRequests(selectableIds);
+        }
+    };
+
+    const handleBulkDelete = async () => {
+        if (selectedRequests.length === 0) return;
+
+        const confirmMessage = `Are you sure you want to delete ${selectedRequests.length} selected request(s)? This action cannot be undone. Accountants will be notified.`;
+        if (!window.confirm(confirmMessage)) {
+            return;
+        }
+
+        try {
+            const token = localStorage.getItem('token');
+            const res = await axios.post(
+                `${API_URL}/requests/bulk-delete`,
+                { requestIds: selectedRequests },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            alert(`Successfully deleted ${res.data.deletedCount} request(s)`);
+            setSelectedRequests([]);
+            // Refresh requests list
+            fetchRequests(token || '');
+        } catch (error: any) {
+            alert(error.response?.data?.error || 'Failed to delete requests');
+        }
+    };
+
     if (!user) return <div>Loading...</div>;
 
     return (
@@ -186,7 +237,7 @@ const Dashboard: React.FC = () => {
             </div>
 
             {user.role === 'MANAGER' && (
-                <div className="mb-4 flex gap-3">
+                <div className="mb-4 flex gap-3 items-center flex-wrap">
                     <button
                         onClick={() => navigate('/requests/new')}
                         className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700"
@@ -199,6 +250,29 @@ const Dashboard: React.FC = () => {
                     >
                         💰 View Budgets
                     </button>
+                    {selectableRequests.length > 0 && (
+                        <>
+                            <button
+                                onClick={handleSelectAll}
+                                className="bg-gray-600 text-white px-4 py-2 rounded shadow hover:bg-gray-700"
+                            >
+                                {selectedRequests.length === selectableRequests.length ? 'Deselect All' : 'Select All'}
+                            </button>
+                            {selectedRequests.length > 0 && (
+                                <>
+                                    <span className="text-gray-700 font-medium">
+                                        {selectedRequests.length} selected
+                                    </span>
+                                    <button
+                                        onClick={handleBulkDelete}
+                                        className="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700"
+                                    >
+                                        Delete Selected ({selectedRequests.length})
+                                    </button>
+                                </>
+                            )}
+                        </>
+                    )}
                 </div>
             )}
 
@@ -319,6 +393,16 @@ const Dashboard: React.FC = () => {
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
+                            {user.role === 'MANAGER' && (
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectableRequests.length > 0 && selectedRequests.length === selectableRequests.length}
+                                        onChange={handleSelectAll}
+                                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                    />
+                                </th>
+                            )}
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Platform</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
@@ -328,7 +412,23 @@ const Dashboard: React.FC = () => {
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                         {filteredRequests.map((req) => (
-                            <tr key={req.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/requests/${req.id}`)}>
+                            <tr 
+                                key={req.id} 
+                                className={`hover:bg-gray-50 cursor-pointer ${selectedRequests.includes(req.id) ? 'bg-blue-50' : ''}`}
+                                onClick={() => navigate(`/requests/${req.id}`)}
+                            >
+                                {user.role === 'MANAGER' && (
+                                    <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                        {req.status === 'PENDING' && (
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedRequests.includes(req.id)}
+                                                onChange={(e) => handleSelectRequest(req.id, e.target.checked)}
+                                                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                            />
+                                        )}
+                                    </td>
+                                )}
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <div className="text-sm font-medium text-gray-900">{req.platformName}</div>
                                     {req.department && (
@@ -373,14 +473,26 @@ const Dashboard: React.FC = () => {
                         ))}
                         {filteredRequests.length === 0 && requests.length > 0 && (
                             <tr>
-                                <td colSpan={user.role === 'ACCOUNTANT' || user.role === 'ADMIN' ? 5 : 4} className="px-6 py-4 text-center text-gray-500">
+                                <td colSpan={
+                                    (user.role === 'ACCOUNTANT' || user.role === 'ADMIN') 
+                                        ? 5 
+                                        : user.role === 'MANAGER' 
+                                        ? 5 
+                                        : 4
+                                } className="px-6 py-4 text-center text-gray-500">
                                     No requests match your filters. Try adjusting your search criteria.
                                 </td>
                             </tr>
                         )}
                         {requests.length === 0 && (
                             <tr>
-                                <td colSpan={user.role === 'ACCOUNTANT' || user.role === 'ADMIN' ? 5 : 4} className="px-6 py-4 text-center text-gray-500">No requests found.</td>
+                                <td colSpan={
+                                    (user.role === 'ACCOUNTANT' || user.role === 'ADMIN') 
+                                        ? 5 
+                                        : user.role === 'MANAGER' 
+                                        ? 5 
+                                        : 4
+                                } className="px-6 py-4 text-center text-gray-500">No requests found.</td>
                             </tr>
                         )}
                     </tbody>

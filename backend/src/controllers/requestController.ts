@@ -32,7 +32,7 @@ const createRequestSchema = z.object({
     url: z.string().url().optional(),
 });
 
-import { notifyNewRequest } from '../services/telegramBot';
+import { notifyNewRequest, notifyRequestEdited, notifyRequestDeleted, notifyBulkRequestDeleted } from '../services/telegramBot';
 
 export const createRequest = async (req: Request, res: Response) => {
     try {
@@ -115,9 +115,10 @@ export const getRequests = async (req: Request, res: Response) => {
         const userId = (req as any).user.userId;
         const role = (req as any).user.role;
 
-        let where = {};
+        let where: any = { deletedAt: null }; // Filter out soft-deleted requests
+        
         if (role === 'MANAGER') {
-            where = { requesterId: userId };
+            where.requesterId = userId;
         }
         // Accountant/Admin sees all
 
@@ -132,6 +133,7 @@ export const getRequests = async (req: Request, res: Response) => {
 
         res.json(requests);
     } catch (error) {
+        console.error('Error fetching requests:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 };
@@ -146,7 +148,7 @@ export const getRequestById = async (req: Request, res: Response) => {
             where: { id: Number(id) },
             include: {
                 requester: { select: { name: true, email: true, id: true } },
-                department: { select: { name: true, monthlyBudget: true } },
+                department: { select: { id: true, name: true, monthlyBudget: true } },
                 comments: {
                     include: {
                         user: { select: { name: true, role: true, id: true } }
@@ -410,5 +412,327 @@ export const getRequestCredentials = async (req: Request, res: Response) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Internal server error' });
+    }
+};
+
+const updateRequestSchema = z.object({
+    platformName: z.string().optional(),
+    cost: z.number().positive().optional(),
+    currency: z.string().optional(),
+    departmentId: z.number().optional(),
+    paymentFrequency: z.enum(['MONTHLY', 'YEARLY', 'ONE_TIME']).optional(),
+    planType: z.string().optional(),
+    url: z.string().url().optional().nullable(),
+});
+
+export const updateRequest = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const userId = (req as any).user.userId;
+        const role = (req as any).user.role;
+        const file = (req as any).file;
+
+        // Only managers can edit requests
+        if (role !== 'MANAGER') {
+            return res.status(403).json({ error: 'Unauthorized - Only managers can edit requests' });
+        }
+
+        // Get current request
+        const currentRequest = await prisma.request.findUnique({
+            where: { id: Number(id) },
+            include: {
+                requester: { select: { name: true, id: true } },
+                department: { select: { name: true } }
+            }
+        });
+
+        if (!currentRequest) {
+            return res.status(404).json({ error: 'Request not found' });
+        }
+
+        // Verify request belongs to the manager
+        if (currentRequest.requesterId !== userId) {
+            return res.status(403).json({ error: 'Unauthorized - You can only edit your own requests' });
+        }
+
+        // Verify request status is PENDING
+        if (currentRequest.status !== 'PENDING') {
+            return res.status(400).json({ error: 'You can only edit requests with PENDING status' });
+        }
+
+        // Parse FormData - convert strings to numbers
+        const parsedBody: any = { ...req.body };
+        if (parsedBody.cost) {
+            parsedBody.cost = parseFloat(parsedBody.cost);
+        }
+        if (parsedBody.departmentId) {
+            parsedBody.departmentId = parseInt(parsedBody.departmentId);
+        }
+
+        // Validate input
+        const data = updateRequestSchema.parse(parsedBody);
+
+        // If departmentId is being changed, verify manager has access to new department
+        if (data.departmentId && data.departmentId !== currentRequest.departmentId) {
+            const hasAccess = await prisma.managerDepartment.findFirst({
+                where: {
+                    managerId: userId,
+                    departmentId: data.departmentId,
+                },
+            });
+            
+            if (!hasAccess) {
+                return res.status(403).json({ error: 'You do not have access to this department' });
+            }
+        }
+
+        // Track changed fields for notification
+        const changedFields: string[] = [];
+        Object.keys(data).forEach(key => {
+            if (data[key as keyof typeof data] !== undefined && data[key as keyof typeof data] !== currentRequest[key as keyof typeof currentRequest]) {
+                changedFields.push(key);
+            }
+        });
+
+        // Handle file upload
+        let attachmentUrl = currentRequest.attachmentUrl;
+        if (file) {
+            attachmentUrl = `/uploads/${file.filename}`;
+            changedFields.push('attachmentUrl');
+        }
+
+        // Prepare update data
+        const updateData: any = {
+            ...data,
+            status: 'PENDING', // Reset to PENDING after edit
+            attachmentUrl,
+        };
+
+        // Remove undefined values
+        Object.keys(updateData).forEach(key => {
+            if (updateData[key] === undefined) {
+                delete updateData[key];
+            }
+        });
+
+        // Update request
+        const updatedRequest = await prisma.request.update({
+            where: { id: Number(id) },
+            data: updateData,
+            include: {
+                requester: { select: { name: true, email: true, id: true } },
+                department: { select: { name: true, monthlyBudget: true } },
+                comments: {
+                    include: {
+                        user: { select: { name: true, role: true, id: true } }
+                    },
+                    orderBy: { createdAt: 'asc' }
+                }
+            }
+        });
+
+        // Create audit log
+        await prisma.auditLog.create({
+            data: {
+                actionType: 'REQUEST_EDITED',
+                targetId: id.toString(),
+                actorId: userId,
+            },
+        });
+
+        // Notify accountants via Telegram
+        try {
+            const screenshotPath = file ? path.join(__dirname, '../../uploads', file.filename) : null;
+            await notifyRequestEdited(updatedRequest, currentRequest.requester.name, changedFields, screenshotPath);
+        } catch (notifyError: any) {
+            console.error(`[Request] Failed to send Telegram notification for edit:`, notifyError?.message || notifyError);
+            // Don't fail the request update if notification fails
+        }
+
+        res.json(updatedRequest);
+    } catch (error: any) {
+        console.error('Error updating request:', error);
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ 
+                error: 'Invalid input', 
+                details: error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`)
+            });
+        }
+        res.status(400).json({ error: error.message || 'Failed to update request' });
+    }
+};
+
+export const deleteRequest = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const userId = (req as any).user.userId;
+        const role = (req as any).user.role;
+
+        // Only managers can delete requests
+        if (role !== 'MANAGER') {
+            return res.status(403).json({ error: 'Unauthorized - Only managers can delete requests' });
+        }
+
+        // Get current request
+        const currentRequest = await prisma.request.findUnique({
+            where: { id: Number(id) },
+            include: {
+                requester: { select: { name: true, id: true } },
+                department: { select: { name: true } }
+            }
+        });
+
+        if (!currentRequest) {
+            return res.status(404).json({ error: 'Request not found' });
+        }
+
+        // Verify request belongs to the manager
+        if (currentRequest.requesterId !== userId) {
+            return res.status(403).json({ error: 'Unauthorized - You can only delete your own requests' });
+        }
+
+        // Verify request status is PENDING
+        if (currentRequest.status !== 'PENDING') {
+            return res.status(400).json({ error: 'You can only delete requests with PENDING status' });
+        }
+
+        // Soft delete - set deletedAt timestamp
+        await prisma.request.update({
+            where: { id: Number(id) },
+            data: { deletedAt: new Date() }
+        });
+
+        // Create audit log
+        await prisma.auditLog.create({
+            data: {
+                actionType: 'REQUEST_DELETED',
+                targetId: id.toString(),
+                actorId: userId,
+            },
+        });
+
+        // Notify accountants via Telegram
+        try {
+            await notifyRequestDeleted(
+                Number(id),
+                currentRequest.platformName,
+                currentRequest.requester.name,
+                currentRequest.department?.name
+            );
+        } catch (notifyError: any) {
+            console.error(`[Request] Failed to send Telegram notification for delete:`, notifyError?.message || notifyError);
+            // Don't fail the request deletion if notification fails
+        }
+
+        res.json({ message: 'Request deleted successfully' });
+    } catch (error: any) {
+        console.error('Error deleting request:', error);
+        res.status(400).json({ error: error.message || 'Failed to delete request' });
+    }
+};
+
+export const bulkDeleteRequests = async (req: Request, res: Response) => {
+    try {
+        const { requestIds } = req.body;
+        const userId = (req as any).user.userId;
+        const role = (req as any).user.role;
+
+        // Only managers can bulk delete requests
+        if (role !== 'MANAGER') {
+            return res.status(403).json({ error: 'Unauthorized - Only managers can bulk delete requests' });
+        }
+
+        // Validate input
+        if (!requestIds || !Array.isArray(requestIds) || requestIds.length === 0) {
+            return res.status(400).json({ error: 'requestIds array is required and must not be empty' });
+        }
+
+        // Convert to numbers and validate
+        const ids = requestIds.map(id => Number(id)).filter(id => !isNaN(id));
+        if (ids.length === 0) {
+            return res.status(400).json({ error: 'Invalid request IDs provided' });
+        }
+
+        // Fetch all requests
+        const requests = await prisma.request.findMany({
+            where: {
+                id: { in: ids },
+                deletedAt: null // Only get non-deleted requests
+            },
+            include: {
+                requester: { select: { name: true, id: true } },
+                department: { select: { name: true } }
+            }
+        });
+
+        if (requests.length === 0) {
+            return res.status(404).json({ error: 'No valid requests found to delete' });
+        }
+
+        // Validate all requests belong to the manager and are PENDING
+        const invalidRequests = requests.filter(req => 
+            req.requesterId !== userId || req.status !== 'PENDING'
+        );
+
+        if (invalidRequests.length > 0) {
+            return res.status(403).json({ 
+                error: 'Some requests cannot be deleted. You can only delete your own PENDING requests.',
+                invalidIds: invalidRequests.map(r => r.id)
+            });
+        }
+
+        // Get manager name for notification
+        const manager = await prisma.user.findUnique({ 
+            where: { id: userId },
+            select: { name: true }
+        });
+
+        // Soft delete all valid requests
+        const now = new Date();
+        await prisma.request.updateMany({
+            where: {
+                id: { in: ids },
+                requesterId: userId,
+                status: 'PENDING',
+                deletedAt: null
+            },
+            data: { deletedAt: now }
+        });
+
+        // Create audit log entries for each deletion
+        const auditLogs = ids.map(requestId => ({
+            actionType: 'REQUEST_DELETED',
+            targetId: requestId.toString(),
+            actorId: userId,
+        }));
+        await prisma.auditLog.createMany({
+            data: auditLogs
+        });
+
+        // Collect deleted request information for notification
+        const deletedRequestsInfo = requests.map(req => ({
+            id: req.id,
+            platformName: req.platformName,
+            departmentName: req.department?.name
+        }));
+
+        // Send combined Telegram notification
+        try {
+            if (manager) {
+                await notifyBulkRequestDeleted(deletedRequestsInfo, manager.name);
+            }
+        } catch (notifyError: any) {
+            console.error(`[Request] Failed to send Telegram notification for bulk delete:`, notifyError?.message || notifyError);
+            // Don't fail the bulk deletion if notification fails
+        }
+
+        res.json({ 
+            message: `Successfully deleted ${requests.length} request(s)`,
+            deletedCount: requests.length,
+            deletedIds: ids
+        });
+    } catch (error: any) {
+        console.error('Error bulk deleting requests:', error);
+        res.status(400).json({ error: error.message || 'Failed to bulk delete requests' });
     }
 };

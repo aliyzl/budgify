@@ -8,6 +8,7 @@ import RequestDetails from './pages/RequestDetails';
 import Analytics from './pages/Analytics';
 import UserManagement from './pages/UserManagement';
 import DepartmentManagement from './pages/DepartmentManagement';
+import DepartmentBudgets from './pages/DepartmentBudgets';
 
 const App: React.FC = () => {
   return (
@@ -21,6 +22,7 @@ const App: React.FC = () => {
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/users" element={<UserManagement />} />
         <Route path="/departments" element={<DepartmentManagement />} />
+        <Route path="/departments/budgets" element={<DepartmentBudgets />} />
         <Route path="/" element={<Navigate to="/login" replace />} />
       </Routes>
     </Router>

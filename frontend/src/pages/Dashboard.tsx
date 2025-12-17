@@ -1,8 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+interface Department {
+    id: number;
+    name: string;
+}
 
 interface Request {
     id: number;
@@ -10,11 +15,17 @@ interface Request {
     cost: number;
     status: string;
     createdAt: string;
+    department?: { name: string; id?: number };
+    requester?: { name: string; email: string };
 }
 
 const Dashboard: React.FC = () => {
     const [user, setUser] = useState<any>(null);
     const [requests, setRequests] = useState<Request[]>([]);
+    const [departments, setDepartments] = useState<Department[]>([]);
+    const [searchQuery, setSearchQuery] = useState<string>('');
+    const [statusFilter, setStatusFilter] = useState<string>('ALL');
+    const [departmentFilter, setDepartmentFilter] = useState<string>('ALL');
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -26,8 +37,14 @@ const Dashboard: React.FC = () => {
             return;
         }
 
-        setUser(JSON.parse(userStr));
+        const parsedUser = JSON.parse(userStr);
+        setUser(parsedUser);
         fetchRequests(token);
+        
+        // Fetch departments for ADMIN and ACCOUNTANT roles
+        if (parsedUser.role === 'ADMIN' || parsedUser.role === 'ACCOUNTANT') {
+            fetchDepartments(token);
+        }
     }, [navigate]);
 
     const fetchRequests = async (token: string) => {
@@ -38,6 +55,17 @@ const Dashboard: React.FC = () => {
             setRequests(res.data);
         } catch (error) {
             console.error('Failed to fetch requests', error);
+        }
+    };
+
+    const fetchDepartments = async (token: string) => {
+        try {
+            const res = await axios.get(`${API_URL}/departments`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setDepartments(res.data);
+        } catch (error) {
+            console.error('Failed to fetch departments', error);
         }
     };
 
@@ -83,6 +111,36 @@ const Dashboard: React.FC = () => {
         navigate('/login');
     };
 
+    const clearFilters = () => {
+        setSearchQuery('');
+        setStatusFilter('ALL');
+        setDepartmentFilter('ALL');
+    };
+
+    // Filter requests based on search and filter criteria
+    const filteredRequests = useMemo(() => {
+        return requests.filter((req) => {
+            // Search filter - platform name (case-insensitive)
+            if (searchQuery && !req.platformName.toLowerCase().includes(searchQuery.toLowerCase())) {
+                return false;
+            }
+
+            // Status filter
+            if (statusFilter !== 'ALL' && req.status !== statusFilter) {
+                return false;
+            }
+
+            // Department filter (only for ADMIN/ACCOUNTANT)
+            if ((user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT') && departmentFilter !== 'ALL') {
+                if (!req.department || req.department.id !== parseInt(departmentFilter)) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+    }, [requests, searchQuery, statusFilter, departmentFilter, user?.role]);
+
     if (!user) return <div>Loading...</div>;
 
     return (
@@ -101,12 +159,18 @@ const Dashboard: React.FC = () => {
             </div>
 
             {user.role === 'MANAGER' && (
-                <div className="mb-4">
+                <div className="mb-4 flex gap-3">
                     <button
                         onClick={() => navigate('/requests/new')}
                         className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700"
                     >
                         + New Request
+                    </button>
+                    <button
+                        onClick={() => navigate('/departments/budgets')}
+                        className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"
+                    >
+                        💰 View Budgets
                     </button>
                 </div>
             )}
@@ -140,13 +204,84 @@ const Dashboard: React.FC = () => {
             )}
 
             <div className="bg-white rounded-lg shadow overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                    <h3 className="text-lg font-medium text-gray-900">
-                        {user.role === 'ACCOUNTANT' || user.role === 'ADMIN' ? 'All Requests' : 'My Requests'}
-                    </h3>
-                    <button onClick={linkTelegram} className="text-sm text-indigo-600 hover:text-indigo-500">
-                        Link Telegram
-                    </button>
+                <div className="px-6 py-4 border-b border-gray-200">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-medium text-gray-900">
+                            {user.role === 'ACCOUNTANT' || user.role === 'ADMIN' ? 'All Requests' : 'My Requests'}
+                        </h3>
+                        <button onClick={linkTelegram} className="text-sm text-indigo-600 hover:text-indigo-500">
+                            Link Telegram
+                        </button>
+                    </div>
+                    
+                    {/* Search and Filter Section */}
+                    <div className="flex flex-wrap gap-3 items-end">
+                        {/* Search Input */}
+                        <div className="flex-1 min-w-[200px]">
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Search Platform</label>
+                            <input
+                                type="text"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder="Search by platform name..."
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                            />
+                        </div>
+
+                        {/* Status Filter */}
+                        <div className="min-w-[150px]">
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
+                            <select
+                                value={statusFilter}
+                                onChange={(e) => setStatusFilter(e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                            >
+                                <option value="ALL">All Status</option>
+                                <option value="PENDING">Pending</option>
+                                <option value="APPROVED">Approved</option>
+                                <option value="REJECTED">Rejected</option>
+                                <option value="ACTIVE">Active</option>
+                                <option value="EXPIRED">Expired</option>
+                            </select>
+                        </div>
+
+                        {/* Department Filter (only for ADMIN/ACCOUNTANT) */}
+                        {(user.role === 'ADMIN' || user.role === 'ACCOUNTANT') && (
+                            <div className="min-w-[180px]">
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Department</label>
+                                <select
+                                    value={departmentFilter}
+                                    onChange={(e) => setDepartmentFilter(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                                >
+                                    <option value="ALL">All Departments</option>
+                                    {departments.map((dept) => (
+                                        <option key={dept.id} value={dept.id.toString()}>
+                                            {dept.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        {/* Clear Filters Button */}
+                        {(searchQuery || statusFilter !== 'ALL' || departmentFilter !== 'ALL') && (
+                            <div>
+                                <button
+                                    onClick={clearFilters}
+                                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                >
+                                    Clear Filters
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Results Count */}
+                    <div className="mt-3 text-sm text-gray-600">
+                        Showing {filteredRequests.length} of {requests.length} request{requests.length !== 1 ? 's' : ''}
+                        {(searchQuery || statusFilter !== 'ALL' || departmentFilter !== 'ALL') && ' (filtered)'}
+                    </div>
                 </div>
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
@@ -159,15 +294,22 @@ const Dashboard: React.FC = () => {
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {requests.map((req) => (
+                        {filteredRequests.map((req) => (
                             <tr key={req.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/requests/${req.id}`)}>
-                                <td className="px-6 py-4 whitespace-nowrap">{req.platformName}</td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                    <div className="text-sm font-medium text-gray-900">{req.platformName}</div>
+                                    {req.department && (
+                                        <div className="text-xs text-gray-500">{req.department.name}</div>
+                                    )}
+                                </td>
                                 <td className="px-6 py-4 whitespace-nowrap">${req.cost}</td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                    ${req.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
-                                            req.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
-                                                'bg-yellow-100 text-yellow-800'}`}>
+                                    ${req.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
+                                        req.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
+                                        req.status === 'ACTIVE' ? 'bg-blue-100 text-blue-800' :
+                                        req.status === 'EXPIRED' ? 'bg-gray-100 text-gray-800' :
+                                        'bg-yellow-100 text-yellow-800'}`}>
                                         {req.status}
                                     </span>
                                 </td>
@@ -184,6 +326,13 @@ const Dashboard: React.FC = () => {
                                 )}
                             </tr>
                         ))}
+                        {filteredRequests.length === 0 && requests.length > 0 && (
+                            <tr>
+                                <td colSpan={user.role === 'ACCOUNTANT' || user.role === 'ADMIN' ? 5 : 4} className="px-6 py-4 text-center text-gray-500">
+                                    No requests match your filters. Try adjusting your search criteria.
+                                </td>
+                            </tr>
+                        )}
                         {requests.length === 0 && (
                             <tr>
                                 <td colSpan={user.role === 'ACCOUNTANT' || user.role === 'ADMIN' ? 5 : 4} className="px-6 py-4 text-center text-gray-500">No requests found.</td>

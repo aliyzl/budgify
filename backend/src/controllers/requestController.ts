@@ -125,7 +125,7 @@ export const getRequests = async (req: Request, res: Response) => {
             where,
             include: {
                 requester: { select: { name: true, email: true } },
-                department: { select: { name: true } },
+                department: { select: { id: true, name: true } },
             },
             orderBy: { createdAt: 'desc' },
         });

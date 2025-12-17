@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getDepartments, getMyDepartments, createDepartment, updateDepartment, deleteDepartment } from '../controllers/departmentController';
+import { getDepartments, getMyDepartments, getDepartmentBudgets, createDepartment, updateDepartment, deleteDepartment } from '../controllers/departmentController';
 import { authenticateToken, requireAdmin } from '../middleware/auth';
 
 const router = Router();
@@ -13,6 +13,9 @@ router.get('/', getDepartments);
 
 // Get departments accessible by current manager
 router.get('/my', getMyDepartments);
+
+// Get budget information for departments (managers only)
+router.get('/budgets', getDepartmentBudgets);
 
 // Create, update, delete require admin role
 router.post('/', requireAdmin, createDepartment);

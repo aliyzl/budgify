@@ -464,3 +464,125 @@ export const deleteDepartment = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Failed to delete department' });
     }
 };
+
+export const getDepartmentBudgets = async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const role = (req as any).user.role;
+        
+        // Only managers can access this endpoint
+        if (role !== 'MANAGER') {
+            return res.status(403).json({ error: 'Only managers can access department budgets' });
+        }
+
+        // Get date range from query parameters
+        const { startDate, endDate } = req.query;
+        
+        let dateStart: Date | null = null;
+        let dateEnd: Date | null = null;
+
+        if (startDate && endDate) {
+            dateStart = new Date(startDate as string);
+            dateEnd = new Date(endDate as string);
+            // Set to end of day
+            dateEnd.setHours(23, 59, 59, 999);
+        }
+
+        // Get all departments the manager has access to
+        const managerDepartments = await prisma.managerDepartment.findMany({
+            where: { managerId: userId },
+            include: {
+                department: {
+                    include: {
+                        requests: {
+                            where: {
+                                status: { in: ['ACTIVE', 'APPROVED'] }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        const budgetData = await Promise.all(
+            managerDepartments.map(async (md) => {
+                const department = md.department;
+                const totalBudget = Number(department.monthlyBudget);
+
+                // Filter requests by date range if provided
+                let relevantRequests = department.requests;
+                
+                if (dateStart && dateEnd) {
+                    relevantRequests = department.requests.filter((req: any) => {
+                        // Check if request was active during the date range
+                        const reqStartDate = req.startDate ? new Date(req.startDate) : new Date(req.createdAt);
+                        const reqRenewalDate = req.renewalDate ? new Date(req.renewalDate) : null;
+                        
+                        // Request is active if:
+                        // 1. startDate is within range, OR
+                        // 2. renewalDate is within range, OR
+                        // 3. request spans the entire range (startDate < rangeStart && renewalDate > rangeEnd)
+                        return (
+                            (reqStartDate >= dateStart && reqStartDate <= dateEnd) ||
+                            (reqRenewalDate && reqRenewalDate >= dateStart && reqRenewalDate <= dateEnd) ||
+                            (reqStartDate <= dateStart && reqRenewalDate && reqRenewalDate >= dateEnd) ||
+                            (reqStartDate <= dateStart && !reqRenewalDate)
+                        );
+                    });
+                }
+
+                // Calculate spent budget (normalize by payment frequency)
+                const spentBudget = relevantRequests.reduce((sum: number, req: any) => {
+                    let cost = Number(req.cost);
+                    
+                    // Normalize cost based on payment frequency
+                    if (req.paymentFrequency === 'YEARLY') {
+                        cost = cost / 12; // Monthly equivalent
+                    } else if (req.paymentFrequency === 'ONE_TIME') {
+                        // For one-time payments, only count if within date range
+                        if (dateStart && dateEnd) {
+                            const reqDate = req.startDate ? new Date(req.startDate) : new Date(req.createdAt);
+                            if (reqDate < dateStart || reqDate > dateEnd) {
+                                return sum; // Don't count if outside range
+                            }
+                        }
+                    }
+                    // MONTHLY payments are counted as-is
+                    
+                    return sum + cost;
+                }, 0);
+
+                const remainingBudget = totalBudget - spentBudget;
+                const budgetUsagePercentage = totalBudget > 0 ? (spentBudget / totalBudget) * 100 : 0;
+
+                // Format active requests for response
+                const activeRequests = relevantRequests.map((req: any) => ({
+                    id: req.id,
+                    platformName: req.platformName,
+                    cost: Number(req.cost),
+                    currency: req.currency,
+                    status: req.status,
+                    startDate: req.startDate,
+                    renewalDate: req.renewalDate,
+                    paymentFrequency: req.paymentFrequency,
+                    createdAt: req.createdAt,
+                }));
+
+                return {
+                    id: department.id,
+                    name: department.name,
+                    totalBudget,
+                    spentBudget: Math.round(spentBudget * 100) / 100, // Round to 2 decimal places
+                    remainingBudget: Math.round(remainingBudget * 100) / 100,
+                    budgetUsagePercentage: Math.round(budgetUsagePercentage * 100) / 100,
+                    activeRequests,
+                };
+            })
+        );
+
+        res.json({ departments: budgetData });
+    } catch (error) {
+        console.error('Error fetching department budgets:', error);
+        res.status(500).json({ error: 'Failed to fetch department budgets' });
+    }
+};

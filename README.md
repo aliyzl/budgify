@@ -12,7 +12,7 @@ A comprehensive web application for managing corporate subscriptions, purchase r
 - [Default Users](#default-users)
 - [Getting Started Checklist](#getting-started-checklist)
 - [PM2 Process Management](#pm2-process-management)
-- [Development](#development)
+- [Development](#-development)
 - [Production Deployment](#production-deployment)
 - [Project Structure](#project-structure)
 - [Environment Variables](#environment-variables)

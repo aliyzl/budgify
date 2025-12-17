@@ -4,21 +4,21 @@ A comprehensive web application for managing corporate subscriptions, purchase r
 
 ## 📋 Table of Contents
 
-- [Overview](#overview)
-- [Features](#features)
-- [Architecture](#architecture)
-- [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-- [Default Users](#default-users)
-- [Getting Started Checklist](#getting-started-checklist)
+- [Overview](#-overview)
+- [Features](#-features)
+- [Architecture](#-architecture)
+- [Prerequisites](#-prerequisites)
+- [Quick Start](#-quick-start)
+- [Default Users](#-default-users)
+- [Getting Started Checklist](#-getting-started-checklist)
 - [PM2 Process Management](#pm2-process-management)
 - [Development](#-development)
-- [Production Deployment](#production-deployment)
-- [Project Structure](#project-structure)
-- [Environment Variables](#environment-variables)
-- [Troubleshooting](#troubleshooting)
-- [Additional Resources](#additional-resources)
-- [License](#license)
+- [Production Deployment](#-production-deployment)
+- [Project Structure](#-project-structure)
+- [Environment Variables](#-environment-variables)
+- [Troubleshooting](#-troubleshooting)
+- [Additional Resources](#-additional-resources)
+- [License](#-license)
 
 ## 🎯 Overview
 

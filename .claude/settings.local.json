@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run pm2:start:dev:*)",
+      "Bash(npm run pm2:status:*)",
+      "Bash(npm run pm2:logs:*)"
+    ]
+  }
+}

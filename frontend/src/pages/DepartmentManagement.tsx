@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import LanguageSwitcher from '../components/LanguageSwitcher';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -28,6 +30,7 @@ interface Manager {
 }
 
 const DepartmentManagement: React.FC = () => {
+    const { t } = useTranslation();
     const [departments, setDepartments] = useState<Department[]>([]);
     const [managers, setManagers] = useState<Manager[]>([]);
     const [loading, setLoading] = useState(true);
@@ -163,7 +166,7 @@ const DepartmentManagement: React.FC = () => {
             if (err.response?.data?.requestCount) {
                 alert(`${errorMsg}. This department has ${err.response.data.requestCount} request(s).`);
             } else {
-                alert(errorMsg);
+                alert(errorMsg || t('departmentManagement.failedToDelete'));
             }
         }
     };
@@ -213,12 +216,16 @@ const DepartmentManagement: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-gray-50 p-8">
+            <div className="absolute top-4 right-4">
+                <LanguageSwitcher />
+            </div>
             <div className="flex justify-between items-center mb-8">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Department Management</h1>
                     <p className="text-gray-600">Manage departments and monthly budgets</p>
                 </div>
-                <div className="flex gap-4">
+                <div className="flex gap-4 items-center flex-shrink-0">
+                    <LanguageSwitcher />
                     <button
                         onClick={() => navigate('/dashboard')}
                         className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300"

@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import LanguageSwitcher from '../components/LanguageSwitcher';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -14,6 +16,7 @@ interface User {
 }
 
 const UserManagement: React.FC = () => {
+    const { t } = useTranslation();
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -57,7 +60,7 @@ const UserManagement: React.FC = () => {
             if (err.response?.status === 403) {
                 navigate('/dashboard');
             } else {
-                setError('Failed to fetch users');
+                setError(t('userManagement.failedToFetch'));
             }
         } finally {
             setLoading(false);
@@ -75,7 +78,7 @@ const UserManagement: React.FC = () => {
             resetForm();
             fetchUsers();
         } catch (err: any) {
-            setError(err.response?.data?.error || 'Failed to create user');
+            setError(err.response?.data?.error || t('userManagement.failedToCreate'));
         }
     };
 
@@ -117,7 +120,7 @@ const UserManagement: React.FC = () => {
             });
             fetchUsers();
         } catch (err: any) {
-            setError(err.response?.data?.error || 'Failed to delete user');
+            setError(err.response?.data?.error || t('userManagement.failedToDelete'));
         }
     };
 
@@ -156,17 +159,18 @@ const UserManagement: React.FC = () => {
     };
 
     if (loading) {
-        return <div className="min-h-screen bg-gray-50 p-8 text-center">Loading...</div>;
+        return <div className="min-h-screen bg-gray-50 p-8 text-center">{t('common.loading')}</div>;
     }
 
     return (
         <div className="min-h-screen bg-gray-50 p-8">
-            <div className="flex justify-between items-center mb-8">
-                <div>
-                    <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
+            <div className="flex justify-between items-start mb-8">
+                <div className="flex-1">
+                    <h1 className="text-2xl font-bold text-gray-900">{t('userManagement.title')}</h1>
                     <p className="text-gray-600">Manage managers and accountants</p>
                 </div>
-                <div className="flex gap-4">
+                <div className="flex gap-4 items-center flex-shrink-0">
+                    <LanguageSwitcher />
                     <button
                         onClick={() => navigate('/dashboard')}
                         className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300"
@@ -210,7 +214,7 @@ const UserManagement: React.FC = () => {
             {showCreateForm && (
                 <div className="bg-white rounded-lg shadow p-6 mb-6">
                     <h2 className="text-xl font-bold mb-4">
-                        {editingUser ? 'Edit User' : 'Create New User'}
+                        {editingUser ? t('userManagement.editUser') : t('userManagement.createUser')}
                     </h2>
                     {error && <div className="bg-red-100 text-red-700 p-3 rounded mb-4">{error}</div>}
                     <form onSubmit={editingUser ? handleUpdate : handleCreate} className="space-y-4">
@@ -343,5 +347,15 @@ const UserManagement: React.FC = () => {
 };
 
 export default UserManagement;
+
+
+
+
+
+
+
+
+
+
 
 

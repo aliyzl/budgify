@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import LanguageSwitcher from '../components/LanguageSwitcher';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -35,6 +37,7 @@ interface RequestDetail {
 }
 
 const RequestDetails: React.FC = () => {
+    const { t } = useTranslation();
     const { id } = useParams<{ id: string }>();
     const [request, setRequest] = useState<RequestDetail | null>(null);
     const [comments, setComments] = useState<Comment[]>([]);
@@ -42,6 +45,7 @@ const RequestDetails: React.FC = () => {
     const [credentials, setCredentials] = useState('');
     const [showCredentials, setShowCredentials] = useState(false);
     const [decryptedCredentials, setDecryptedCredentials] = useState('');
+    const [copiedField, setCopiedField] = useState<'username' | 'password' | null>(null);
     const [paymentInfo, setPaymentInfo] = useState({
         exchangeRate: '',
         localCost: '',
@@ -124,22 +128,37 @@ const RequestDetails: React.FC = () => {
             setComments([...comments, res.data]);
             setNewComment('');
         } catch (e) {
-            alert('Failed to send comment');
+            alert(t('requestDetails.failedToSendComment'));
         }
     };
 
     const handleStatusChange = async () => {
         if (!newStatus) {
-            alert('Please select a new status');
+            alert(t('requestDetails.selectNewStatus'));
             return;
         }
 
         if (newStatus === 'REJECTED' && !statusChangeReason.trim()) {
-            alert('Rejection reason is required');
+            alert(t('requestDetails.rejectionReasonRequired'));
             return;
         }
 
-        const confirmMessage = `Are you sure you want to change this request from ${request?.status} to ${newStatus}?`;
+        const getStatusTranslation = (status: string): string => {
+            const statusMap: Record<string, string> = {
+                'PENDING': t('status.pending'),
+                'APPROVED': t('status.approved'),
+                'REJECTED': t('status.rejected'),
+                'ACTIVE': t('status.active'),
+                'EXPIRED': t('status.expired'),
+                'CANCELLED': t('status.cancelled'),
+            };
+            return statusMap[status] || status;
+        };
+
+        const confirmMessage = t('requestDetails.confirmStatusChange', {
+            currentStatus: request?.status ? getStatusTranslation(request.status) : '',
+            newStatus: getStatusTranslation(newStatus)
+        });
         if (!window.confirm(confirmMessage)) {
             return;
         }
@@ -168,9 +187,9 @@ const RequestDetails: React.FC = () => {
             setNewStatus('');
             setStatusChangeCost('');
             setStatusChangeReason('');
-            alert('Status updated successfully');
+            alert(t('requestDetails.statusUpdated'));
         } catch (err: any) {
-            const errorMsg = err.response?.data?.error || 'Failed to update status';
+            const errorMsg = err.response?.data?.error || t('requestDetails.failedToUpdate');
             alert(errorMsg);
         }
     };
@@ -195,7 +214,7 @@ const RequestDetails: React.FC = () => {
                 { credentials },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            alert('Credentials saved securely!');
+            alert(t('requestDetails.credentialsSaved'));
             setCredentials('');
             // Refresh request data
             const reqRes = await axios.get(`${API_URL}/requests/${id}`, {
@@ -203,7 +222,7 @@ const RequestDetails: React.FC = () => {
             });
             setRequest(reqRes.data);
         } catch (e: any) {
-            alert(e.response?.data?.error || 'Failed to save credentials');
+            alert(e.response?.data?.error || t('requestDetails.failedToSaveCredentials'));
         }
     };
 
@@ -218,7 +237,39 @@ const RequestDetails: React.FC = () => {
             setDecryptedCredentials(res.data.credentials);
             setShowCredentials(true);
         } catch (e: any) {
-            alert(e.response?.data?.error || 'Failed to decrypt credentials');
+            alert(e.response?.data?.error || t('requestDetails.failedToDecrypt'));
+        }
+    };
+
+    // Parse credentials string to extract username and password
+    const parseCredentials = (credentialText: string): { username: string; password: string } => {
+        const lines = credentialText.split('\n');
+        let username = '';
+        let password = '';
+        
+        for (const line of lines) {
+            if (line.startsWith('Username:')) {
+                username = line.replace('Username:', '').trim();
+            } else if (line.startsWith('Password:')) {
+                password = line.replace('Password:', '').trim();
+            }
+        }
+        
+        return { username, password };
+    };
+
+    // Copy text to clipboard
+    const copyToClipboard = async (text: string, field: 'username' | 'password'): Promise<void> => {
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopiedField(field);
+            // Reset feedback after 2 seconds
+            setTimeout(() => {
+                setCopiedField(null);
+            }, 2000);
+        } catch (err) {
+            console.error('Failed to copy to clipboard:', err);
+            alert(t('requestDetails.failedToCopy'));
         }
     };
 
@@ -233,14 +284,14 @@ const RequestDetails: React.FC = () => {
                 },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            alert('Payment information saved!');
+            alert(t('requestDetails.paymentInfoSaved'));
             // Refresh request data
             const reqRes = await axios.get(`${API_URL}/requests/${id}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setRequest(reqRes.data);
         } catch (e: any) {
-            alert(e.response?.data?.error || 'Failed to save payment info');
+            alert(e.response?.data?.error || t('requestDetails.failedToSavePayment'));
         }
     };
 
@@ -298,9 +349,9 @@ const RequestDetails: React.FC = () => {
             setRequest(res.data);
             setComments(res.data.comments || []);
             setShowEditForm(false);
-            alert('Request updated successfully!');
+            alert(t('requestDetails.requestUpdated'));
         } catch (e: any) {
-            alert(e.response?.data?.error || 'Failed to update request');
+            alert(e.response?.data?.error || t('requestDetails.failedToUpdate'));
         }
     };
 
@@ -314,10 +365,10 @@ const RequestDetails: React.FC = () => {
             await axios.delete(`${API_URL}/requests/${id}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            alert('Request deleted successfully!');
+            alert(t('requestDetails.requestDeleted'));
             navigate('/dashboard');
         } catch (e: any) {
-            alert(e.response?.data?.error || 'Failed to delete request');
+            alert(e.response?.data?.error || t('requestDetails.failedToDelete'));
             setShowDeleteConfirm(false);
         }
     };
@@ -331,7 +382,10 @@ const RequestDetails: React.FC = () => {
     return (
         <div className="min-h-screen bg-gray-50 p-8">
             <div className="max-w-6xl mx-auto">
-                <button onClick={() => navigate('/dashboard')} className="text-sm text-gray-500 mb-4">&larr; Back to Dashboard</button>
+                <div className="flex justify-between items-center mb-4">
+                    <button onClick={() => navigate('/dashboard')} className="text-sm text-gray-500">&larr; Back to Dashboard</button>
+                    <LanguageSwitcher />
+                </div>
                 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Left: Request Details */}
@@ -652,20 +706,20 @@ const RequestDetails: React.FC = () => {
                                 <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full mx-4">
                                     <h3 className="text-lg font-bold text-gray-900 mb-4">Confirm Delete</h3>
                                     <p className="text-gray-700 mb-6">
-                                        Are you sure you want to delete this request? This action cannot be undone. Accountants will be notified of this deletion.
+                                        {t('requestDetails.confirmDelete')}
                                     </p>
                                     <div className="flex justify-end space-x-3">
                                         <button 
                                             onClick={() => setShowDeleteConfirm(false)}
                                             className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50"
                                         >
-                                            Cancel
+                                            {t('common.cancel')}
                                         </button>
                                         <button 
                                             onClick={handleDeleteConfirm}
                                             className="px-4 py-2 bg-red-600 rounded text-sm text-white hover:bg-red-700"
                                         >
-                                            Delete Request
+                                            {t('common.delete')}
                                         </button>
                                     </div>
                                 </div>
@@ -694,6 +748,76 @@ const RequestDetails: React.FC = () => {
                             </div>
                         )}
 
+                        {/* Secure Vault - Accountant View (Manager-Added Credentials) */}
+                        {isAccountant && request.credentialVault && (
+                            <div className="bg-white rounded-lg shadow p-6 border-2 border-blue-200">
+                                <h3 className="text-lg font-bold mb-4">🔐 Secure Vault - Manager-Added Credentials</h3>
+                                <p className="text-sm text-gray-600 mb-4">Credentials added by the manager when creating this request. You can view or update them if needed.</p>
+                                {!showCredentials ? (
+                                    <>
+                                        <button
+                                            onClick={handleViewCredentials}
+                                            className="w-full bg-indigo-600 text-white py-2 rounded font-medium hover:bg-indigo-700"
+                                        >
+                                            View Credentials
+                                        </button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="bg-gray-50 p-4 rounded mb-4 space-y-3">
+                                            {(() => {
+                                                const { username, password } = parseCredentials(decryptedCredentials);
+                                                return (
+                                                    <>
+                                                        <div className="space-y-1">
+                                                            <label className="text-xs font-medium text-gray-500">Username</label>
+                                                            <div 
+                                                                onClick={() => username && copyToClipboard(username, 'username')}
+                                                                className="flex items-center justify-between p-2 bg-white rounded border border-gray-200 cursor-pointer hover:bg-indigo-50 hover:border-indigo-300 transition-colors group"
+                                                            >
+                                                                <span className="text-sm font-mono text-gray-900 select-none">{username || '(not provided)'}</span>
+                                                                {copiedField === 'username' ? (
+                                                                    <span className="text-xs text-green-600 font-medium">✓ Copied!</span>
+                                                                ) : (
+                                                                    <svg className="w-4 h-4 text-gray-400 group-hover:text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                                    </svg>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <label className="text-xs font-medium text-gray-500">Password</label>
+                                                            <div 
+                                                                onClick={() => password && password !== '(not provided)' && copyToClipboard(password, 'password')}
+                                                                className={`flex items-center justify-between p-2 bg-white rounded border border-gray-200 transition-colors group ${
+                                                                    password && password !== '(not provided)' ? 'cursor-pointer hover:bg-indigo-50 hover:border-indigo-300' : 'cursor-not-allowed opacity-60'
+                                                                }`}
+                                                            >
+                                                                <span className="text-sm font-mono text-gray-900 select-none">{password || '(not provided)'}</span>
+                                                                {copiedField === 'password' ? (
+                                                                    <span className="text-xs text-green-600 font-medium">✓ Copied!</span>
+                                                                ) : password && password !== '(not provided)' ? (
+                                                                    <svg className="w-4 h-4 text-gray-400 group-hover:text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                                    </svg>
+                                                                ) : null}
+                                                            </div>
+                                                        </div>
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
+                                        <button
+                                            onClick={() => setShowCredentials(false)}
+                                            className="w-full bg-gray-200 text-gray-700 py-2 rounded font-medium hover:bg-gray-300"
+                                        >
+                                            Hide Credentials
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
                         {/* Secure Vault - Manager View */}
                         {isRequester && request.credentialVault && (
                             <div className="bg-white rounded-lg shadow p-6 border-2 border-indigo-200">
@@ -710,8 +834,48 @@ const RequestDetails: React.FC = () => {
                                     </>
                                 ) : (
                                     <>
-                                        <div className="bg-gray-50 p-4 rounded mb-4">
-                                            <pre className="whitespace-pre-wrap text-sm font-mono">{decryptedCredentials}</pre>
+                                        <div className="bg-gray-50 p-4 rounded mb-4 space-y-3">
+                                            {(() => {
+                                                const { username, password } = parseCredentials(decryptedCredentials);
+                                                return (
+                                                    <>
+                                                        <div className="space-y-1">
+                                                            <label className="text-xs font-medium text-gray-500">Username</label>
+                                                            <div 
+                                                                onClick={() => username && copyToClipboard(username, 'username')}
+                                                                className="flex items-center justify-between p-2 bg-white rounded border border-gray-200 cursor-pointer hover:bg-indigo-50 hover:border-indigo-300 transition-colors group"
+                                                            >
+                                                                <span className="text-sm font-mono text-gray-900 select-none">{username || '(not provided)'}</span>
+                                                                {copiedField === 'username' ? (
+                                                                    <span className="text-xs text-green-600 font-medium">✓ Copied!</span>
+                                                                ) : (
+                                                                    <svg className="w-4 h-4 text-gray-400 group-hover:text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                                    </svg>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <label className="text-xs font-medium text-gray-500">Password</label>
+                                                            <div 
+                                                                onClick={() => password && password !== '(not provided)' && copyToClipboard(password, 'password')}
+                                                                className={`flex items-center justify-between p-2 bg-white rounded border border-gray-200 transition-colors group ${
+                                                                    password && password !== '(not provided)' ? 'cursor-pointer hover:bg-indigo-50 hover:border-indigo-300' : 'cursor-not-allowed opacity-60'
+                                                                }`}
+                                                            >
+                                                                <span className="text-sm font-mono text-gray-900 select-none">{password || '(not provided)'}</span>
+                                                                {copiedField === 'password' ? (
+                                                                    <span className="text-xs text-green-600 font-medium">✓ Copied!</span>
+                                                                ) : password && password !== '(not provided)' ? (
+                                                                    <svg className="w-4 h-4 text-gray-400 group-hover:text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                                    </svg>
+                                                                ) : null}
+                                                            </div>
+                                                        </div>
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
                                         <button
                                             onClick={() => setShowCredentials(false)}

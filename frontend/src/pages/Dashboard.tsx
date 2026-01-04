@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import LanguageSwitcher from '../components/LanguageSwitcher';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -20,6 +22,7 @@ interface Request {
 }
 
 const Dashboard: React.FC = () => {
+    const { t, i18n } = useTranslation();
     const [user, setUser] = useState<any>(null);
     const [requests, setRequests] = useState<Request[]>([]);
     const [departments, setDepartments] = useState<Department[]>([]);
@@ -28,6 +31,21 @@ const Dashboard: React.FC = () => {
     const [departmentFilter, setDepartmentFilter] = useState<string>('ALL');
     const [selectedRequests, setSelectedRequests] = useState<number[]>([]);
     const navigate = useNavigate();
+
+    useEffect(() => {
+        // Apply user's preferred language if available
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+            try {
+                const parsedUser = JSON.parse(userStr);
+                if (parsedUser.preferredLanguage && parsedUser.preferredLanguage !== i18n.language) {
+                    i18n.changeLanguage(parsedUser.preferredLanguage);
+                }
+            } catch (e) {
+                // Ignore parse errors
+            }
+        }
+    }, [i18n]);
 
     useEffect(() => {
         const userStr = localStorage.getItem('user');
@@ -78,23 +96,46 @@ const Dashboard: React.FC = () => {
             });
             window.open(res.data.link, '_blank');
         } catch (error) {
-            alert('Failed to generate telegram link');
+            alert(t('dashboard.failedToGenerateLink'));
         }
+    };
+
+    const getStatusTranslation = (status: string): string => {
+        const statusMap: Record<string, string> = {
+            'PENDING': t('status.pending'),
+            'APPROVED': t('status.approved'),
+            'REJECTED': t('status.rejected'),
+            'ACTIVE': t('status.active'),
+            'EXPIRED': t('status.expired'),
+            'CANCELLED': t('status.cancelled'),
+        };
+        return statusMap[status] || status;
     };
 
     const handleUpdateStatus = async (id: number, status: string, currentStatus?: string) => {
         try {
-            // Confirmation for status changes
-            const statusMessages: Record<string, string> = {
-                'PENDING': 'reset to PENDING',
-                'APPROVED': 'approve',
-                'REJECTED': 'reject',
-                'ACTIVE': 'activate'
-            };
-            const action = statusMessages[status] || 'change status';
-            const confirmMessage = currentStatus 
-                ? `Are you sure you want to change this request from ${currentStatus} to ${status}?`
-                : `Are you sure you want to ${action} this request?`;
+            let confirmMessage: string;
+            if (currentStatus) {
+                confirmMessage = t('dashboard.confirmStatusChange', {
+                    currentStatus: getStatusTranslation(currentStatus),
+                    newStatus: getStatusTranslation(status)
+                });
+            } else {
+                if (status === 'APPROVED') {
+                    confirmMessage = t('dashboard.confirmApprove');
+                } else if (status === 'REJECTED') {
+                    confirmMessage = t('dashboard.confirmReject');
+                } else if (status === 'ACTIVE') {
+                    confirmMessage = t('dashboard.confirmActivate');
+                } else if (status === 'PENDING') {
+                    confirmMessage = t('dashboard.confirmResetPending');
+                } else {
+                    confirmMessage = t('dashboard.confirmStatusChange', {
+                        currentStatus: '',
+                        newStatus: getStatusTranslation(status)
+                    });
+                }
+            }
             
             if (!window.confirm(confirmMessage)) {
                 return; // User cancelled
@@ -104,18 +145,18 @@ const Dashboard: React.FC = () => {
             let rejectionReason;
 
             if (status === 'APPROVED') {
-                const costStr = prompt('Enter final cost (leave empty to keep current cost):');
+                const costStr = prompt(t('dashboard.enterFinalCost'));
                 if (costStr && costStr.trim()) {
                     cost = parseFloat(costStr);
                     if (isNaN(cost)) {
-                        alert('Invalid cost value');
+                        alert(t('dashboard.invalidCost'));
                         return;
                     }
                 }
             } else if (status === 'REJECTED') {
-                rejectionReason = prompt('Enter rejection reason (required):');
+                rejectionReason = prompt(t('dashboard.enterRejectionReason'));
                 if (!rejectionReason || !rejectionReason.trim()) {
-                    alert('Rejection reason is required');
+                    alert(t('dashboard.rejectionReasonRequired'));
                     return;
                 }
             }
@@ -126,9 +167,9 @@ const Dashboard: React.FC = () => {
             );
             // Refresh
             fetchRequests(localStorage.getItem('token')!);
-            alert('Status updated successfully');
+            alert(t('dashboard.statusUpdated'));
         } catch (err: any) {
-            const errorMsg = err.response?.data?.error || 'Failed to update status';
+            const errorMsg = err.response?.data?.error || t('dashboard.failedToUpdateStatus');
             alert(errorMsg);
         }
     };
@@ -197,7 +238,7 @@ const Dashboard: React.FC = () => {
     const handleBulkDelete = async () => {
         if (selectedRequests.length === 0) return;
 
-        const confirmMessage = `Are you sure you want to delete ${selectedRequests.length} selected request(s)? This action cannot be undone. Accountants will be notified.`;
+        const confirmMessage = t('dashboard.confirmBulkDelete', { count: selectedRequests.length });
         if (!window.confirm(confirmMessage)) {
             return;
         }
@@ -210,30 +251,42 @@ const Dashboard: React.FC = () => {
                 { headers: { Authorization: `Bearer ${token}` } }
             );
 
-            alert(`Successfully deleted ${res.data.deletedCount} request(s)`);
+            alert(t('dashboard.bulkDeleteSuccess', { count: res.data.deletedCount }));
             setSelectedRequests([]);
             // Refresh requests list
             fetchRequests(token || '');
         } catch (error: any) {
-            alert(error.response?.data?.error || 'Failed to delete requests');
+            alert(error.response?.data?.error || t('dashboard.bulkDeleteFailed'));
         }
     };
 
-    if (!user) return <div>Loading...</div>;
+    const getRoleTranslation = (role: string): string => {
+        const roleMap: Record<string, string> = {
+            'ADMIN': t('roles.admin'),
+            'MANAGER': t('roles.manager'),
+            'ACCOUNTANT': t('roles.accountant'),
+        };
+        return roleMap[role] || role;
+    };
+
+    if (!user) return <div>{t('common.loading')}</div>;
 
     return (
         <div className="min-h-screen bg-gray-100 p-8">
-            <div className="flex justify-between items-center mb-8">
-                <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Welcome, {user.name}</h1>
-                    <p className="text-gray-600">Role: {user.role}</p>
+            <div className="flex justify-between items-start mb-8">
+                <div className="flex-1">
+                    <h1 className="text-2xl font-bold text-gray-900">{t('dashboard.welcome', { name: user.name })}</h1>
+                    <p className="text-gray-600">{t('dashboard.role', { role: getRoleTranslation(user.role) })}</p>
                 </div>
-                <button
-                    onClick={handleLogout}
-                    className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
-                >
-                    Logout
-                </button>
+                <div className="flex items-center gap-4 flex-shrink-0">
+                    <LanguageSwitcher />
+                    <button
+                        onClick={handleLogout}
+                        className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+                    >
+                        {t('common.logout')}
+                    </button>
+                </div>
             </div>
 
             {user.role === 'MANAGER' && (
@@ -242,13 +295,13 @@ const Dashboard: React.FC = () => {
                         onClick={() => navigate('/requests/new')}
                         className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700"
                     >
-                        + New Request
+                        {t('dashboard.newRequest')}
                     </button>
                     <button
                         onClick={() => navigate('/departments/budgets')}
                         className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"
                     >
-                        💰 View Budgets
+                        {t('dashboard.viewBudgets')}
                     </button>
                     {selectableRequests.length > 0 && (
                         <>
@@ -256,18 +309,18 @@ const Dashboard: React.FC = () => {
                                 onClick={handleSelectAll}
                                 className="bg-gray-600 text-white px-4 py-2 rounded shadow hover:bg-gray-700"
                             >
-                                {selectedRequests.length === selectableRequests.length ? 'Deselect All' : 'Select All'}
+                                {selectedRequests.length === selectableRequests.length ? t('dashboard.deselectAll') : t('dashboard.selectAll')}
                             </button>
                             {selectedRequests.length > 0 && (
                                 <>
                                     <span className="text-gray-700 font-medium">
-                                        {selectedRequests.length} selected
+                                        {t('dashboard.selected', { count: selectedRequests.length })}
                                     </span>
                                     <button
                                         onClick={handleBulkDelete}
                                         className="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700"
                                     >
-                                        Delete Selected ({selectedRequests.length})
+                                        {t('dashboard.deleteSelected', { count: selectedRequests.length })}
                                     </button>
                                 </>
                             )}
@@ -282,13 +335,13 @@ const Dashboard: React.FC = () => {
                         onClick={() => navigate('/analytics')}
                         className="bg-indigo-600 text-white px-4 py-2 rounded shadow hover:bg-indigo-700"
                     >
-                        📊 View Analytics
+                        {t('dashboard.viewAnalytics')}
                     </button>
                     <button
                         onClick={() => navigate('/departments/budgets')}
                         className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"
                     >
-                        💰 View Budgets
+                        {t('dashboard.viewBudgets')}
                     </button>
                 </div>
             )}
@@ -299,13 +352,13 @@ const Dashboard: React.FC = () => {
                         onClick={() => navigate('/users')}
                         className="bg-purple-600 text-white px-4 py-2 rounded shadow hover:bg-purple-700"
                     >
-                        👥 User Management
+                        {t('dashboard.userManagement')}
                     </button>
                     <button
                         onClick={() => navigate('/departments')}
                         className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"
                     >
-                        🏢 Department Management
+                        {t('dashboard.departmentManagement')}
                     </button>
                 </div>
             )}
@@ -314,10 +367,10 @@ const Dashboard: React.FC = () => {
                 <div className="px-6 py-4 border-b border-gray-200">
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="text-lg font-medium text-gray-900">
-                            {user.role === 'ACCOUNTANT' || user.role === 'ADMIN' ? 'All Requests' : 'My Requests'}
+                            {user.role === 'ACCOUNTANT' || user.role === 'ADMIN' ? t('dashboard.allRequests') : t('dashboard.myRequests')}
                         </h3>
                         <button onClick={linkTelegram} className="text-sm text-indigo-600 hover:text-indigo-500">
-                            Link Telegram
+                            {t('dashboard.linkTelegram')}
                         </button>
                     </div>
                     
@@ -325,43 +378,43 @@ const Dashboard: React.FC = () => {
                     <div className="flex flex-wrap gap-3 items-end">
                         {/* Search Input */}
                         <div className="flex-1 min-w-[200px]">
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Search Platform</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('dashboard.searchPlatform')}</label>
                             <input
                                 type="text"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="Search by platform name..."
+                                placeholder={t('dashboard.searchPlaceholder')}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                             />
                         </div>
 
                         {/* Status Filter */}
                         <div className="min-w-[150px]">
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">{t('common.status')}</label>
                             <select
                                 value={statusFilter}
                                 onChange={(e) => setStatusFilter(e.target.value)}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                             >
-                                <option value="ALL">All Status</option>
-                                <option value="PENDING">Pending</option>
-                                <option value="APPROVED">Approved</option>
-                                <option value="REJECTED">Rejected</option>
-                                <option value="ACTIVE">Active</option>
-                                <option value="EXPIRED">Expired</option>
+                                <option value="ALL">{t('dashboard.allStatus')}</option>
+                                <option value="PENDING">{t('status.pending')}</option>
+                                <option value="APPROVED">{t('status.approved')}</option>
+                                <option value="REJECTED">{t('status.rejected')}</option>
+                                <option value="ACTIVE">{t('status.active')}</option>
+                                <option value="EXPIRED">{t('status.expired')}</option>
                             </select>
                         </div>
 
                         {/* Department Filter (only for ADMIN/ACCOUNTANT) */}
                         {(user.role === 'ADMIN' || user.role === 'ACCOUNTANT') && (
                             <div className="min-w-[180px]">
-                                <label className="block text-xs font-medium text-gray-700 mb-1">Department</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">{t('common.department')}</label>
                                 <select
                                     value={departmentFilter}
                                     onChange={(e) => setDepartmentFilter(e.target.value)}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                                 >
-                                    <option value="ALL">All Departments</option>
+                                    <option value="ALL">{t('dashboard.allDepartments')}</option>
                                     {departments.map((dept) => (
                                         <option key={dept.id} value={dept.id.toString()}>
                                             {dept.name}
@@ -378,7 +431,7 @@ const Dashboard: React.FC = () => {
                                     onClick={clearFilters}
                                     className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                                 >
-                                    Clear Filters
+                                    {t('dashboard.clearFilters')}
                                 </button>
                             </div>
                         )}
@@ -386,8 +439,12 @@ const Dashboard: React.FC = () => {
 
                     {/* Results Count */}
                     <div className="mt-3 text-sm text-gray-600">
-                        Showing {filteredRequests.length} of {requests.length} request{requests.length !== 1 ? 's' : ''}
-                        {(searchQuery || statusFilter !== 'ALL' || departmentFilter !== 'ALL') && ' (filtered)'}
+                        {t('dashboard.showing', { 
+                            count: filteredRequests.length, 
+                            total: requests.length,
+                            plural: requests.length !== 1 ? 's' : ''
+                        })}
+                        {(searchQuery || statusFilter !== 'ALL' || departmentFilter !== 'ALL') && t('dashboard.filtered')}
                     </div>
                 </div>
                 <table className="min-w-full divide-y divide-gray-200">
@@ -403,11 +460,11 @@ const Dashboard: React.FC = () => {
                                     />
                                 </th>
                             )}
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Platform</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                            {(user.role === 'ACCOUNTANT' || user.role === 'ADMIN') && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>}
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('common.platform')}</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('common.cost')}</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('common.status')}</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('common.date')}</th>
+                            {(user.role === 'ACCOUNTANT' || user.role === 'ADMIN') && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('common.actions')}</th>}
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -443,7 +500,7 @@ const Dashboard: React.FC = () => {
                                         req.status === 'ACTIVE' ? 'bg-blue-100 text-blue-800' :
                                         req.status === 'EXPIRED' ? 'bg-gray-100 text-gray-800' :
                                         'bg-yellow-100 text-yellow-800'}`}>
-                                        {req.status}
+                                        {getStatusTranslation(req.status)}
                                     </span>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">{new Date(req.createdAt).toLocaleDateString()}</td>
@@ -451,20 +508,20 @@ const Dashboard: React.FC = () => {
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                         {req.status === 'PENDING' && (
                                             <>
-                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'APPROVED', req.status); }} className="text-green-600 hover:text-green-900 mr-4">Approve</button>
-                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'REJECTED', req.status); }} className="text-red-600 hover:text-red-900">Reject</button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'APPROVED', req.status); }} className="text-green-600 hover:text-green-900 mr-4">{t('status.approved')}</button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'REJECTED', req.status); }} className="text-red-600 hover:text-red-900">{t('status.rejected')}</button>
                                             </>
                                         )}
                                         {req.status === 'APPROVED' && (
                                             <>
-                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'PENDING', req.status); }} className="text-yellow-600 hover:text-yellow-900 mr-4">Reset to Pending</button>
-                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'REJECTED', req.status); }} className="text-red-600 hover:text-red-900">Reject</button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'PENDING', req.status); }} className="text-yellow-600 hover:text-yellow-900 mr-4">{t('status.pending')}</button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'REJECTED', req.status); }} className="text-red-600 hover:text-red-900">{t('status.rejected')}</button>
                                             </>
                                         )}
                                         {req.status === 'REJECTED' && (
                                             <>
-                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'PENDING', req.status); }} className="text-yellow-600 hover:text-yellow-900 mr-4">Reset to Pending</button>
-                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'APPROVED', req.status); }} className="text-green-600 hover:text-green-900">Approve</button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'PENDING', req.status); }} className="text-yellow-600 hover:text-yellow-900 mr-4">{t('status.pending')}</button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(req.id, 'APPROVED', req.status); }} className="text-green-600 hover:text-green-900">{t('status.approved')}</button>
                                             </>
                                         )}
                                     </td>
@@ -480,7 +537,7 @@ const Dashboard: React.FC = () => {
                                         ? 5 
                                         : 4
                                 } className="px-6 py-4 text-center text-gray-500">
-                                    No requests match your filters. Try adjusting your search criteria.
+                                    {t('dashboard.noRequestsMatch')}
                                 </td>
                             </tr>
                         )}
@@ -492,7 +549,7 @@ const Dashboard: React.FC = () => {
                                         : user.role === 'MANAGER' 
                                         ? 5 
                                         : 4
-                                } className="px-6 py-4 text-center text-gray-500">No requests found.</td>
+                                } className="px-6 py-4 text-center text-gray-500">{t('dashboard.noRequestsFound')}</td>
                             </tr>
                         )}
                     </tbody>

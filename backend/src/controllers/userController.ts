@@ -198,3 +198,31 @@ export const deleteUser = async (req: Request, res: Response) => {
     }
 };
 
+const updateLanguagePreferenceSchema = z.object({
+    preferredLanguage: z.enum(['en', 'fa']).optional(),
+});
+
+export const updateLanguagePreference = async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { preferredLanguage } = updateLanguagePreferenceSchema.parse(req.body);
+
+        const updatedUser = await prisma.user.update({
+            where: { id: userId },
+            data: { preferredLanguage },
+            select: {
+                id: true,
+                preferredLanguage: true,
+            },
+        });
+
+        res.json(updatedUser);
+    } catch (error: any) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Invalid input', details: error.issues });
+        }
+        console.error('Error updating language preference:', error);
+        res.status(500).json({ error: 'Failed to update language preference' });
+    }
+};
+

@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import LanguageSwitcher from '../components/LanguageSwitcher';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -27,6 +29,7 @@ interface DepartmentBudget {
 }
 
 const DepartmentBudgets: React.FC = () => {
+    const { t } = useTranslation();
     const [user, setUser] = useState<any>(null);
     const [departments, setDepartments] = useState<DepartmentBudget[]>([]);
     const [loading, setLoading] = useState(true);
@@ -83,7 +86,7 @@ const DepartmentBudgets: React.FC = () => {
             if (error.response?.status === 403) {
                 navigate('/dashboard');
             } else {
-                alert('Failed to fetch budget information');
+                alert(t('departmentBudgets.failedToFetch'));
             }
         } finally {
             setLoading(false);
@@ -168,9 +171,9 @@ const DepartmentBudgets: React.FC = () => {
         } catch (error: any) {
             console.error('Failed to export Excel:', error);
             if (error.response?.status === 403) {
-                alert('You do not have permission to export budgets');
+                alert(t('departmentBudgets.noPermissionExport'));
             } else {
-                alert('Failed to export Excel file');
+                alert(t('departmentBudgets.failedToExportExcel'));
             }
         }
     };
@@ -210,33 +213,34 @@ const DepartmentBudgets: React.FC = () => {
         } catch (error: any) {
             console.error('Failed to export PDF:', error);
             if (error.response?.status === 403) {
-                alert('You do not have permission to export budgets');
+                alert(t('departmentBudgets.noPermissionExport'));
             } else {
-                alert('Failed to export PDF file');
+                alert(t('departmentBudgets.failedToExportPDF'));
             }
         }
     };
 
     if (!user || (user.role !== 'MANAGER' && user.role !== 'ADMIN' && user.role !== 'ACCOUNTANT')) {
-        return <div className="min-h-screen bg-gray-100 p-8">Loading...</div>;
+        return <div className="min-h-screen bg-gray-100 p-8">{t('common.loading')}</div>;
     }
 
     if (loading) {
-        return <div className="min-h-screen bg-gray-100 p-8 text-center">Loading budget information...</div>;
+        return <div className="min-h-screen bg-gray-100 p-8 text-center">{t('common.loading')}</div>;
     }
 
     return (
         <div className="min-h-screen bg-gray-100 p-8">
-            <div className="flex justify-between items-center mb-8">
-                <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Department Budgets</h1>
+            <div className="flex justify-between items-start mb-8">
+                <div className="flex-1">
+                    <h1 className="text-2xl font-bold text-gray-900">{t('departmentBudgets.title')}</h1>
                     <p className="text-gray-600">
                         {user.role === 'MANAGER' 
                             ? 'View budget information for your departments' 
                             : 'View budget information for all departments'}
                     </p>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex gap-3 items-center">
+                    <LanguageSwitcher />
                     <button
                         onClick={handleExportExcel}
                         disabled={loading}

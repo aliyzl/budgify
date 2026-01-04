@@ -30,6 +30,7 @@ const createRequestSchema = z.object({
     // Optional fields
     planType: z.string().optional(),
     url: z.string().url().optional(),
+    credentials: z.string().optional(),
 });
 
 import { notifyNewRequest, notifyRequestEdited, notifyRequestDeleted, notifyBulkRequestDeleted } from '../services/telegramBot';
@@ -76,12 +77,25 @@ export const createRequest = async (req: Request, res: Response) => {
             attachmentUrl = `/uploads/${file.filename}`;
         }
 
+        // Handle credentials encryption if provided
+        let credentialVault = null;
+        if (data.credentials && data.credentials.trim()) {
+            credentialVault = encrypt(data.credentials);
+        }
+
         const newRequest = await prisma.request.create({
             data: {
-                ...data,
+                platformName: data.platformName,
+                cost: data.cost,
+                currency: data.currency,
+                departmentId: data.departmentId,
+                paymentFrequency: data.paymentFrequency,
+                planType: data.planType,
+                url: data.url,
                 requesterId: userId,
                 status: 'PENDING',
                 attachmentUrl,
+                credentialVault,
             },
         });
 
@@ -713,7 +727,7 @@ export const bulkDeleteRequests = async (req: Request, res: Response) => {
         const deletedRequestsInfo = requests.map(req => ({
             id: req.id,
             platformName: req.platformName,
-            departmentName: req.department?.name
+            departmentName: (req as any).department?.name
         }));
 
         // Send combined Telegram notification

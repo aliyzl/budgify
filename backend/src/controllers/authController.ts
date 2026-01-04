@@ -41,7 +41,7 @@ export const login = async (req: Request, res: Response) => {
         }
 
         const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET as string, { expiresIn: '1d' });
-        res.json({ token, user: { id: user.id, name: user.name, role: user.role } });
+        res.json({ token, user: { id: user.id, name: user.name, role: user.role, preferredLanguage: user.preferredLanguage } });
     } catch (error) {
         res.status(400).json({ error: 'Invalid input' });
     }
